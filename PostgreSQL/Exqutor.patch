@@ -1,0 +1,95 @@
+diff --git a/src/backend/optimizer/path/costsize.c b/src/backend/optimizer/path/costsize.c
+index ef475d95a18..c52b63a6d04 100644
+--- a/src/backend/optimizer/path/costsize.c
++++ b/src/backend/optimizer/path/costsize.c
+@@ -99,6 +99,7 @@
+ #include "utils/spccache.h"
+ #include "utils/tuplesort.h"
+ 
++set_baserel_rows_estimate_hook_type set_baserel_rows_estimate_hook = NULL;
+ 
+ #define LOG2(x)  (log(x) / 0.693147180559945)
+ 
+@@ -4983,6 +4984,49 @@ approx_tuple_count(PlannerInfo *root, JoinPath *path, List *quals)
+ }
+ 
+ 
++/*
++ * set_baserel_rows_estimate
++ *		Set the rows estimate for the given base relation.
++ *
++ * Rows is the estimated number of output tuples after applying
++ * restriction clauses.
++ *
++ * To support loadable plugins that monitor or modify cardinality estimation,
++ * we provide a hook variable that lets a plugin get control before and
++ * after the cardinality estimation.
++ * The hook must set rel->rows.
++ */
++void
++set_baserel_rows_estimate(PlannerInfo *root, RelOptInfo *rel)
++{
++	if (set_baserel_rows_estimate_hook)
++		(*set_baserel_rows_estimate_hook) (root, rel);
++	else
++		set_baserel_rows_estimate_standard(root, rel);
++}
++
++/*
++ * set_baserel_rows_estimate
++ *		Set the rows estimate for the given base relation.
++ *
++ * Rows is the estimated number of output tuples after applying
++ * restriction clauses.
++ */
++void
++set_baserel_rows_estimate_standard(PlannerInfo *root, RelOptInfo *rel)
++{
++	double		nrows;
++
++	nrows = rel->tuples *
++		clauselist_selectivity(root,
++							   rel->baserestrictinfo,
++							   0,
++							   JOIN_INNER,
++							   NULL);
++
++	rel->rows = clamp_row_est(nrows);
++}
++
+ /*
+  * set_baserel_size_estimates
+  *		Set the size estimates for the given base relation.
+@@ -4999,19 +5043,10 @@ approx_tuple_count(PlannerInfo *root, JoinPath *path, List *quals)
+ void
+ set_baserel_size_estimates(PlannerInfo *root, RelOptInfo *rel)
+ {
+-	double		nrows;
+-
+ 	/* Should only be applied to base relations */
+ 	Assert(rel->relid > 0);
+ 
+-	nrows = rel->tuples *
+-		clauselist_selectivity(root,
+-							   rel->baserestrictinfo,
+-							   0,
+-							   JOIN_INNER,
+-							   NULL);
+-
+-	rel->rows = clamp_row_est(nrows);
++	set_baserel_rows_estimate(root, rel);
+ 
+ 	cost_qual_eval(&rel->baserestrictcost, rel->baserestrictinfo, root);
+ 
+diff --git a/src/include/optimizer/cost.h b/src/include/optimizer/cost.h
+index 6cf49705d3a..390b1d28ede 100644
+--- a/src/include/optimizer/cost.h
++++ b/src/include/optimizer/cost.h
+@@ -40,6 +40,7 @@ typedef enum
+ 	CONSTRAINT_EXCLUSION_PARTITION	/* apply c_e to otherrels only */
+ }			ConstraintExclusionType;
+ 
++typedef void (*set_baserel_rows_estimate_hook_type) (PlannerInfo *root, RelOptInfo *rel);
+ 
+ /*
+  * prototypes for costsize.c
