@@ -19,12 +19,7 @@
 #include "duckdb/optimizer/remove_unused_columns.hpp"
 #include "duckdb/planner/expression_iterator.hpp"
 #include "duckdb/optimizer/matcher/expression_matcher.hpp"
-
-// #include "duckdb/main/client_context.hpp"
-// #include "duckdb/main/database.hpp"
-// #include "duckdb/common/exception.hpp"
 #include "duckdb/main/config.hpp"
-#include <chrono>
 
 namespace duckdb {
 
@@ -65,10 +60,8 @@ public:
 								auto &right_expr = func_expr.children[1];
 								*vector_string = "array_value(" + right_expr->Cast<BoundConstantExpression>().value.ToString().substr(1, right_expr->Cast<BoundConstantExpression>().value.ToString().size() - 2) + ")";
 
-								// `threshold` 설정
 								*threshold = compare_expr.right->Cast<BoundConstantExpression>().value.GetValue<float>();
 
-								// filter와 parent 설정
 								filter_out = current_child;
 								parent_out = parent;
 								return true;
@@ -76,10 +69,9 @@ public:
 						}
 					}
 				}
-				parent = current_child;  // 현재 노드를 부모로 설정
+				parent = current_child;
 				current_child = &(*current_child)->children[0];
 			} else if ((*current_child)->children.size() == 2) {
-				// Join에 대한 처리
 				join_count++;
 				auto left = &(*current_child)->children[0];
 				auto right = &(*current_child)->children[1];
@@ -87,8 +79,7 @@ public:
 				bool right_found = findFilterOperatorWithArray_distance(context, *right, filter_out, parent_out, threshold, vector_string, join_count);
 				return left_found || right_found;
 			} else {
-				// 다음 자식으로 이동
-				parent = current_child;  // 현재 노드를 부모로 설정
+				parent = current_child;
 				current_child = &(*current_child)->children[0];
 			}
 		}
@@ -97,7 +88,13 @@ public:
 
 
 	static bool TryOptimizeTopN(ClientContext &context, unique_ptr<LogicalOperator> &plan) {
-		auto &op = plan->Cast<LogicalTopN>();
+		// Look for a TopN operator
+		auto &op = *plan;
+
+		if (op.type != LogicalOperatorType::LOGICAL_TOP_N) {
+			return false;
+		}
+
 		auto &top_n = op.Cast<LogicalTopN>();
 
 		if (top_n.orders.size() != 1) {
@@ -135,9 +132,15 @@ public:
 			return false;
 		}
 
-		auto &get = projection.children.front()->Cast<LogicalGet>();
+		auto &get_ptr = projection.children.front();
+		auto &get = get_ptr->Cast<LogicalGet>();
 		// Check if the get is a table scan
 		if (get.function.name != "seq_scan") {
+			return false;
+		}
+
+		if (get.dynamic_filters && get.dynamic_filters->HasFilters()) {
+			// Cant push down!
 			return false;
 		}
 
@@ -161,19 +164,6 @@ public:
 		table_info.GetIndexes().BindAndScan<HNSWIndex>(context, table_info, [&](HNSWIndex &hnsw_index) {
 			// Reset the bindings
 			bindings.clear();
-
-			if (projection_expr->type == ExpressionType::BOUND_FUNCTION) {
-				auto &func_expr = projection_expr->Cast<BoundFunctionExpression>();
-				// Printer::Print("Function name: " + func_expr.function.name + "\n");
-
-				if (func_expr.function.name != "array_distance") {
-					// Printer::Print("Unsupported function: " + func_expr.function.name + "\n");
-					return false;
-				}
-			} else {
-				// Printer::Print("Expression is not a function.\n");
-				return false;
-			}
 
 			// Check that the projection expression is a distance function that matches the index
 			if (!hnsw_index.TryMatchDistanceFunction(projection_expr, bindings)) {
@@ -216,17 +206,46 @@ public:
 			return false;
 		}
 
-		// Replace the scan with our custom index scan function
-
-		get.function = HNSWIndexScanFunction::GetFunction();
+		// If there are no table filters pushed down into the get, we can just replace the get with the index scan
 		const auto cardinality = get.function.cardinality(context, bind_data.get());
+		get.function = HNSWIndexScanFunction::GetFunction();
 		get.has_estimated_cardinality = cardinality->has_estimated_cardinality;
 		get.estimated_cardinality = cardinality->estimated_cardinality;
 		get.bind_data = std::move(bind_data);
+		if (get.table_filters.filters.empty()) {
 
-		// Remove the distance function from the projection
-		// projection.expressions.erase(projection.expressions.begin() + static_cast<ptrdiff_t>(projection_index));
-		// top_n.expressions
+			// Remove the TopN operator
+			plan = std::move(top_n.children[0]);
+			return true;
+		}
+
+		// Otherwise, things get more complicated. We need to pullup the filters from the table scan as our index scan
+		// does not support regular filter pushdown.
+		get.projection_ids.clear();
+		get.types.clear();
+
+		auto new_filter = make_uniq<LogicalFilter>();
+		auto &column_ids = get.GetColumnIds();
+		for (const auto &entry : get.table_filters.filters) {
+			idx_t column_id = entry.first;
+			auto &type = get.returned_types[column_id];
+			bool found = false;
+			for (idx_t i = 0; i < column_ids.size(); i++) {
+				if (column_ids[i] == column_id) {
+					column_id = i;
+					found = true;
+					break;
+				}
+			}
+			if (!found) {
+				throw InternalException("Could not find column id for filter");
+			}
+			auto column = make_uniq<BoundColumnRefExpression>(type, ColumnBinding(get.table_index, column_id));
+			new_filter->expressions.push_back(entry.second->ToExpression(*column));
+		}
+		new_filter->children.push_back(std::move(get_ptr));
+		new_filter->ResolveOperatorTypes();
+		get_ptr = std::move(new_filter);
 
 		// Remove the TopN operator
 		plan = std::move(top_n.children[0]);
