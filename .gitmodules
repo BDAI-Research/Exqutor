@@ -1,8 +1,6 @@
 [submodule "DuckDB/duckdb-vss/duckdb"]
 	path = DuckDB/duckdb-vss/duckdb
 	url = https://github.com/duckdb/duckdb.git
-	branch = f680b7d
 [submodule "DuckDB/duckdb-vss/extension-ci-tools"]
 	path = DuckDB/duckdb-vss/extension-ci-tools
 	url = https://github.com/duckdb/extension-ci-tools.git
-	branch = 638a972
