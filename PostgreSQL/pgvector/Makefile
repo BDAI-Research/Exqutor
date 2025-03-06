@@ -44,8 +44,7 @@ sql/$(EXTENSION)--$(EXTVERSION).sql: sql/$(EXTENSION).sql
 
 EXTRA_CLEAN = sql/$(EXTENSION)--$(EXTVERSION).sql
 
-# PG_CONFIG ?= /home/wns41559/pg/ours/our_postgres/bin/pg_config
-PG_CONFIG ?= /home/wns41559/pg/ours/our_postgres_final/bin/pg_config
+PG_CONFIG ?= pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 
