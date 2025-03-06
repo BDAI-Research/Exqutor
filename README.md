@@ -1,5 +1,3 @@
-# Exqutor
-
 <div align="center">
   <h1>
     &nbsp; Exqutor: Extended Query Optimizer for Vector-augmented Analytical Queries
