@@ -103,4 +103,7 @@ SET hnsw_enable_experimental_persistence = true;
 
 # query options
 SET hnsw_ef_search = 400;
+
+# Add the following to the beginning of the execution
+pragma disabled_optimizers='COMPRESSED_MATERIALIZATION';
 ```
