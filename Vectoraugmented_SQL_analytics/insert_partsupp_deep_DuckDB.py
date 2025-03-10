@@ -4,7 +4,6 @@ import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 import os
 
-# 파일 경로 설정
 partsupp_csv_path = "/path/to/partsupp.csv"
 vector_bin_path = "/path/to/deep.fbin"
 duckdb_database_path = "/path/to/exqutor.duckdb"

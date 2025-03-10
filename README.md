@@ -66,7 +66,7 @@ make
 
 Update the CSV path in `tpch-load.sql`.
 
-Insert data using `tpch-load.sql` and `insert_partsupp_deep_DuckDB.py`.
+Insert data using `tpch-load.sql` and `insert_partsupp_deep.py`.
 
 Execute the following scripts in order:
 - `tpch-pkeys.sql`

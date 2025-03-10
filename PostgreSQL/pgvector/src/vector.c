@@ -132,7 +132,6 @@ static bool is_vector_range_query = false;
 bool reuse_computation = false;
 
 static bool allow_sample_size_update = true;
-static bool should_update_sample_size = false;
 static float8 sample_size = 385;
 static int sample_update_cycle = 50;
 static double learning_rate = 0.1;
@@ -964,13 +963,14 @@ static float8
 get_median(Datum *Qerrors_array, int length) 
 {
     float8 *values = palloc(length * sizeof(float8));
+	float8 median;
     for (int i = 0; i < length; i++) {
         values[i] = DatumGetFloat8(Qerrors_array[i]);
     }
 
     qsort(values, length, sizeof(float8), compare_float8);
 
-    float8 median;
+    
     if (length % 2 == 1) {
         median = values[length / 2];
     } else {
