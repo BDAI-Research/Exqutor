@@ -22,7 +22,25 @@
 
 #### PostgreSQL
 
-1. Install pgvector and pg_hint_plan
+1. Install PostgreSQL
+
+- Download PostgreSQL 16.4
+- Save the `PostgreSQL/Exqutor.patch` file in the PostgreSQL source code directory and apply the patch using the following commands:
+
+```sh
+cd /path/to/postgresql
+patch -p1 < /path/to/Exqutor.patch
+```
+
+- After applying the patch, build and install PostgreSQL:
+
+```sh
+./configure
+make
+sudo make install
+```
+
+2. Install pgvector and pg_hint_plan
 ```sh
 cd PostgreSQL/pgvector
 # Modify Makefile
@@ -43,7 +61,7 @@ make
 sudo make install
 ```
 
-2. Setup Vector-augmented_SQL_analytics
+3. Setup Vector-augmented_SQL_analytics
 
 Update the CSV path in `tpch-load.sql`.
 
