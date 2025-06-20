@@ -4,9 +4,6 @@
 [submodule "DuckDB/duckdb-vss/extension-ci-tools"]
 	path = DuckDB/duckdb-vss/extension-ci-tools
 	url = https://github.com/duckdb/extension-ci-tools.git
-[submodule "PostgreSQL/pg_hint_plan"]
-	path = PostgreSQL/pg_hint_plan
-	url = https://github.com/ossc-db/pg_hint_plan.git
 [submodule "PostgreSQL/pgvector/postgres"]
 	path = PostgreSQL/pgvector/postgres
 	url = https://github.com/postgres/postgres.git
