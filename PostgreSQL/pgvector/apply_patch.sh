@@ -5,6 +5,7 @@ cd "$(dirname "$0")" || exit 1
 
 # Apply pgvector_Exqutor.patch to ./pgvector
 cd pgvector || exit 1
+git checkout v0.7.1
 patch -p1 < ../patch/pgvector_Exqutor.patch || exit 1
 cd ..
 

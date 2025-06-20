@@ -20,57 +20,22 @@
 
 ### Installation
 
-#### PostgreSQL
+#### pgvector + Exqutor
 
-1. Install PostgreSQL
+1. Install pgvector + Exqutor
 
-- Download PostgreSQL 16.4
-- Save the `PostgreSQL/Exqutor.patch` file in the PostgreSQL source code directory and apply the patch using the following commands:
-
-```sh
-cd /path/to/postgresql
-patch -p1 < /path/to/Exqutor.patch
-```
-
-- After applying the patch, build and install PostgreSQL:
-
-```sh
-./configure
-make
-sudo make install
-```
-
-2. Install pgvector and pg_hint_plan
 ```sh
 cd PostgreSQL/pgvector
-# Modify Makefile
-# PG_CONFIG ?= pg_config
-# to 
-# PG_CONFIG ?= path/to/pg_config
-vim Makefile
-make 
-sudo make install
-
-cd ../pg_hint_plan
-# Modify Makefile
-# PG_CONFIG ?= pg_config
-# to 
-# PG_CONFIG ?= path/to/pg_config
-vim Makefile
-make 
-sudo make install
+./apply_patch.sh
+./build.sh
 ```
 
-3. Setup Vector-augmented_SQL_analytics
+2. Setup Vector-augmented_SQL_analytics
 
 Update the CSV path in `tpch-load.sql`.
 
 Insert data using `tpch-load.sql` and `insert_partsupp_deep_PostgreSQL.py`.
 
-Execute the following scripts in order:
-- `tpch-pkeys.sql`
-- `tpch-alter.sql`
-- `tpch-index.sql`
 
 #### DuckDB
 
@@ -86,10 +51,6 @@ Update the CSV path in `tpch-load.sql`.
 
 Insert data using `tpch-load.sql` and `insert_partsupp_deep.py`.
 
-Execute the following scripts in order:
-- `tpch-pkeys.sql`
-- `tpch-alter.sql`
-- `tpch-index.sql`
 
 ### Run VAQs
 
@@ -107,11 +68,6 @@ CREATE INDEX partsupp_hnsw ON partsupp USING hnsw (ps_embedding vector_l2_ops) W
 
 # query options
 SET hnsw.ef_search = 400;
-
-# Add the following to the beginning of your query to force hnsw index search
-/*+
-    indexscan(partsupp partsupp_hnsw)
-*/
 ```
 
 ```sql

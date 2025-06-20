@@ -11,3 +11,6 @@
 [submodule "PostgreSQL/VBASE/MSVBASE"]
 	path = PostgreSQL/VBASE/MSVBASE
 	url = https://github.com/microsoft/MSVBASE.git
+[submodule "PostgreSQL/pgvector/pgvector"]
+	path = PostgreSQL/pgvector/pgvector
+	url = https://github.com/pgvector/pgvector.git
