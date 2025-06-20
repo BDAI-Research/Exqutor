@@ -1,95 +1,1277 @@
-diff --git a/src/backend/optimizer/path/costsize.c b/src/backend/optimizer/path/costsize.c
-index ef475d95a18..c52b63a6d04 100644
---- a/src/backend/optimizer/path/costsize.c
-+++ b/src/backend/optimizer/path/costsize.c
-@@ -99,6 +99,7 @@
- #include "utils/spccache.h"
- #include "utils/tuplesort.h"
+diff --git a/.dockerignore b/.dockerignore
+old mode 100644
+new mode 100755
+diff --git a/.editorconfig b/.editorconfig
+old mode 100644
+new mode 100755
+diff --git a/.gitignore b/.gitignore
+old mode 100644
+new mode 100755
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+old mode 100644
+new mode 100755
+diff --git a/Dockerfile b/Dockerfile
+old mode 100644
+new mode 100755
+diff --git a/LICENSE b/LICENSE
+old mode 100644
+new mode 100755
+diff --git a/META.json b/META.json
+old mode 100644
+new mode 100755
+diff --git a/Makefile b/Makefile
+old mode 100644
+new mode 100755
+index 4379562..2b4ef13
+--- a/Makefile
++++ b/Makefile
+@@ -77,4 +77,4 @@ docker:
+ .PHONY: docker-release
  
-+set_baserel_rows_estimate_hook_type set_baserel_rows_estimate_hook = NULL;
+ docker-release:
+-	docker buildx build --push --pull --no-cache --platform linux/amd64,linux/arm64 --build-arg PG_MAJOR=$(PG_MAJOR) -t pgvector/pgvector:pg$(PG_MAJOR) -t pgvector/pgvector:$(EXTVERSION)-pg$(PG_MAJOR) .
++	docker buildx build --push --pull --no-cache --platform linux/amd64,linux/arm64 --build-arg PG_MAJOR=$(PG_MAJOR) -t pgvector/pgvector:pg$(PG_MAJOR) -t pgvector/pgvector:$(EXTVERSION)-pg$(PG_MAJOR) .
+\ No newline at end of file
+diff --git a/Makefile.win b/Makefile.win
+old mode 100644
+new mode 100755
+diff --git a/README.md b/README.md
+old mode 100644
+new mode 100755
+diff --git a/sql/vector--0.7.0--0.7.1.sql b/sql/vector--0.7.0--0.7.1.sql
+index 97055c5..f8b1155 100644
+--- a/sql/vector--0.7.0--0.7.1.sql
++++ b/sql/vector--0.7.0--0.7.1.sql
+@@ -1,2 +1,11 @@
+ -- complain if script is sourced in psql, rather than via CREATE EXTENSION
+ \echo Use "ALTER EXTENSION vector UPDATE TO '0.7.1'" to load this file. \quit
++
++CREATE TABLE IF NOT EXISTS pgvector_qerror (
++    table_name TEXT PRIMARY KEY,
++    sample_size FLOAT,
++    recent_qerrors FLOAT[],
++    qerror_count INT,
++    v_grad FLOAT,
++    learning_rate FLOAT
++);
+\ No newline at end of file
+diff --git a/src/hnsw.c b/src/hnsw.c
+old mode 100644
+new mode 100755
+index b56ab71..0e870ee
+--- a/src/hnsw.c
++++ b/src/hnsw.c
+@@ -11,6 +11,7 @@
+ #include "miscadmin.h"
+ #include "utils/guc.h"
+ #include "utils/selfuncs.h"
++#include "utils/spccache.h"
  
- #define LOG2(x)  (log(x) / 0.693147180559945)
+ #if PG_VERSION_NUM < 150000
+ #define MarkGUCPrefixReserved(x) EmitWarningsOnPlaceholders(x)
+@@ -134,7 +135,6 @@ hnswcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
+ 	costs.numIndexTuples = (entryLevel + 2) * m;
  
-@@ -4983,6 +4984,49 @@ approx_tuple_count(PlannerInfo *root, JoinPath *path, List *quals)
+ 	genericcostestimate(root, path, loop_count, &costs);
+-
+ 	/* Use total cost since most work happens before first tuple is returned */
+ 	*indexStartupCost = costs.indexTotalCost;
+ 	*indexTotalCost = costs.indexTotalCost;
+diff --git a/src/hnsw.h b/src/hnsw.h
+old mode 100644
+new mode 100755
+diff --git a/src/hnswscan.c b/src/hnswscan.c
+old mode 100644
+new mode 100755
+index 0efbaa1..c4b0d3d
+--- a/src/hnswscan.c
++++ b/src/hnswscan.c
+@@ -7,6 +7,10 @@
+ #include "storage/lmgr.h"
+ #include "utils/memutils.h"
+ 
++#include <time.h>
++#include "nodes/memnodes.h"
++static List * search_result = NIL;
++
+ /*
+  * Algorithm 5 from paper
+  */
+@@ -22,7 +26,7 @@ GetScanItems(IndexScanDesc scan, Datum q)
+ 	int			m;
+ 	HnswElement entryPoint;
+ 	char	   *base = NULL;
+-
++	
+ 	/* Get m and entry point */
+ 	HnswGetMetaPageInfo(index, &m, &entryPoint);
+ 
+@@ -40,6 +44,46 @@ GetScanItems(IndexScanDesc scan, Datum q)
+ 	return HnswSearchLayer(base, q, ep, hnsw_ef_search, 0, index, procinfo, collation, m, false, NULL);
  }
  
- 
-+/*
-+ * set_baserel_rows_estimate
-+ *		Set the rows estimate for the given base relation.
-+ *
-+ * Rows is the estimated number of output tuples after applying
-+ * restriction clauses.
-+ *
-+ * To support loadable plugins that monitor or modify cardinality estimation,
-+ * we provide a hook variable that lets a plugin get control before and
-+ * after the cardinality estimation.
-+ * The hook must set rel->rows.
-+ */
-+void
-+set_baserel_rows_estimate(PlannerInfo *root, RelOptInfo *rel)
++static List *
++CopyScanItems(List *search_results)
 +{
-+	if (set_baserel_rows_estimate_hook)
-+		(*set_baserel_rows_estimate_hook) (root, rel);
-+	else
-+		set_baserel_rows_estimate_standard(root, rel);
++	MemoryContext old_ctx;
++	List *copied_results = NIL;
++    ListCell *lc;
++    if (search_results == NULL)
++        return NIL;
++
++    old_ctx = MemoryContextSwitchTo(TopMemoryContext);
++
++	// elog(INFO, "copy search_results elements %p", search_results->elements);
++
++    foreach (lc, search_results)
++    {
++        HnswCandidate *candidate = (HnswCandidate *) lfirst(lc);
++        HnswCandidate *copied_candidate = palloc(sizeof(HnswCandidate));
++
++        if (candidate->element.ptr != NULL)
++        {
++            copied_candidate->element.ptr = palloc(sizeof(*(candidate->element.ptr)));
++            memcpy(copied_candidate->element.ptr, candidate->element.ptr, sizeof(*(candidate->element.ptr)));
++        }
++        else
++        {
++            copied_candidate->element.ptr = NULL;
++        }
++
++        copied_candidate->distance = candidate->distance;
++        copied_candidate->closer = candidate->closer;
++
++        copied_results = lappend(copied_results, copied_candidate);
++    }
++
++    MemoryContextSwitchTo(old_ctx);
++
++    return copied_results;
 +}
 +
-+/*
-+ * set_baserel_rows_estimate
-+ *		Set the rows estimate for the given base relation.
-+ *
-+ * Rows is the estimated number of output tuples after applying
-+ * restriction clauses.
-+ */
-+void
-+set_baserel_rows_estimate_standard(PlannerInfo *root, RelOptInfo *rel)
-+{
-+	double		nrows;
-+
-+	nrows = rel->tuples *
-+		clauselist_selectivity(root,
-+							   rel->baserestrictinfo,
-+							   0,
-+							   JOIN_INNER,
-+							   NULL);
-+
-+	rel->rows = clamp_row_est(nrows);
-+}
 +
  /*
-  * set_baserel_size_estimates
-  *		Set the size estimates for the given base relation.
-@@ -4999,19 +5043,10 @@ approx_tuple_count(PlannerInfo *root, JoinPath *path, List *quals)
- void
- set_baserel_size_estimates(PlannerInfo *root, RelOptInfo *rel)
+  * Get scan value
+  */
+@@ -120,14 +164,26 @@ bool
+ hnswgettuple(IndexScanDesc scan, ScanDirection dir)
  {
--	double		nrows;
+ 	HnswScanOpaque so = (HnswScanOpaque) scan->opaque;
+-	MemoryContext oldCtx = MemoryContextSwitchTo(so->tmpCtx);
 -
- 	/* Should only be applied to base relations */
- 	Assert(rel->relid > 0);
++	MemoryContext oldCtx = MemoryContextSwitchTo(TopMemoryContext);
++	clock_t start, end;
+ 	/*
+ 	 * Index can be used to scan backward, but Postgres doesn't support
+ 	 * backward scan on operators
+ 	 */
+ 	Assert(ScanDirectionIsForward(dir));
  
--	nrows = rel->tuples *
--		clauselist_selectivity(root,
--							   rel->baserestrictinfo,
--							   0,
--							   JOIN_INNER,
--							   NULL);
++	if (reuse_computation == false)
++    {
++		if (search_result != NIL)
++        {
++            so->w = CopyScanItems(search_result);
++
++            list_free_deep(search_result);
++            search_result = NIL;
++        	so->first = false;
++        }
++    }
++
+ 	if (so->first)
+ 	{
+ 		Datum		value;
+@@ -153,8 +209,15 @@ hnswgettuple(IndexScanDesc scan, ScanDirection dir)
+ 		 */
+ 		LockPage(scan->indexRelation, HNSW_SCAN_LOCK, ShareLock);
+ 
++		start = clock();
+ 		so->w = GetScanItems(scan, value);
 -
--	rel->rows = clamp_row_est(nrows);
-+	set_baserel_rows_estimate(root, rel);
++		end = clock();
++		elog(LOG, "hnsw scan time %f", (double) (end - start));
++		if (reuse_computation)
++		{
++			list_free_deep(search_result);
++			search_result = CopyScanItems(so->w);
++		}
+ 		/* Release shared lock */
+ 		UnlockPage(scan->indexRelation, HNSW_SCAN_LOCK, ShareLock);
  
- 	cost_qual_eval(&rel->baserestrictcost, rel->baserestrictinfo, root);
+diff --git a/src/hnswutils.c b/src/hnswutils.c
+index d3ba911..d9bdda6 100644
+--- a/src/hnswutils.c
++++ b/src/hnswutils.c
+@@ -775,9 +775,9 @@ HnswSearchLayer(char *base, Datum q, List *ep, int ef, int lc, Relation index, F
  
-diff --git a/src/include/optimizer/cost.h b/src/include/optimizer/cost.h
-index 6cf49705d3a..390b1d28ede 100644
---- a/src/include/optimizer/cost.h
-+++ b/src/include/optimizer/cost.h
-@@ -40,6 +40,7 @@ typedef enum
- 	CONSTRAINT_EXCLUSION_PARTITION	/* apply c_e to otherrels only */
- }			ConstraintExclusionType;
+ 		/* Get the neighborhood at layer lc */
+ 		neighborhood = HnswGetNeighbors(base, cElement, lc);
++		if (index == NULL)
  
-+typedef void (*set_baserel_rows_estimate_hook_type) (PlannerInfo *root, RelOptInfo *rel);
+ 		/* Copy neighborhood to local memory if needed */
+-		if (index == NULL)
+ 		{
+ 			LWLockAcquire(&cElement->lock, LW_SHARED);
+ 			memcpy(neighborhoodData, neighborhood, neighborhoodSize);
+diff --git a/src/vector.c b/src/vector.c
+old mode 100644
+new mode 100755
+index 4ba7ce1..1ff0b27
+--- a/src/vector.c
++++ b/src/vector.c
+@@ -2,6 +2,11 @@
+ 
+ #include <math.h>
+ 
++#ifdef PG_MODULE_MAGIC
++PG_MODULE_MAGIC;
++#endif
++
++
+ #include "bitutils.h"
+ #include "bitvec.h"
+ #include "catalog/pg_type.h"
+@@ -22,6 +27,28 @@
+ #include "utils/numeric.h"
+ #include "vector.h"
+ 
++#include "optimizer/planner.h"
++#include "executor/executor.h"
++#include "nodes/plannodes.h"
++#include "commands/defrem.h"
++#include "access/relation.h"
++#include "optimizer/paths.h"
++#include "catalog/index.h"
++#include "nodes/makefuncs.h"
++#include "tcop/tcopprot.h"
++#include "parser/parser.h"
++#include "optimizer/cost.h"
++#include "optimizer/optimizer.h"
++#include "utils/ruleutils.h"
++#include "parser/parsetree.h"
++
++#include "utils/syscache.h"
++#include "catalog/pg_class.h"
++#include "catalog/pg_am.h"
++#include "catalog/namespace.h"
++#include "executor/spi.h"
++#include <time.h>
++
+ #if PG_VERSION_NUM >= 160000
+ #include "varatt.h"
+ #endif
+@@ -41,6 +68,85 @@
+ #endif
+ 
+ PG_MODULE_MAGIC;
++Datum vector_out(PG_FUNCTION_ARGS);
++
++extern void (*set_baserel_rows_estimate_hook)(PlannerInfo *root, RelOptInfo *rel);
++
++/* Planner and Execution */
++static PlannedStmt *pgvector_plan_planner(Query *parse, const char *query_string, int cursorOptions, ParamListInfo boundParams);
++static void pgvector_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction, uint64 count, bool execute_once);
++static void pgvector_ExecutorEnd(QueryDesc *queryDesc);
++static void pgvector_set_baserel_rows_estimate_hook(PlannerInfo *root, RelOptInfo *rel);
++
++/* Vector Index and Search */
++static bool check_for_vector_search(QueryDesc *queryDesc, Node *node);
++static bool check_vector_range_query(PlannerInfo *root, RelOptInfo *rel);
++static bool has_vector_column(PlannerInfo *root, RelOptInfo *rel);
++static PlannedStmt *CreatePlannedStmtForVectorSearchNodes(QueryDesc *queryDesc, List *hnswNodes);
++
++/* Cardinality Estimation and Sampling */
++static double estimate_cardinality_with_sampling(double total_rows);
++static void get_true_cardinality_for_vector_query(QueryDesc *queryDesc, PlanState *planstate);
++static double get_relation_row_count(QueryDesc *queryDesc, Index scanrelid);
++static char *get_tablename_from_scan(QueryDesc *queryDesc, Index scanrelid);
++
++/* Query Analysis and Table Counting */
++static void count_total_tables(Query *query, int *table_count);
++static void count_tables_in_quals(Node *quals, int *table_count);
++
++/* Query Error Learning and Update */
++static void load_qerrors_array(const char *table_name, Datum *Qerrors_array, int *Qerrors_count, float8 *sample_size, float8 *v_grad, float8 *learning_rate);
++static void update_qerrors_array(const char *table_name, Datum *Qerrors_array, int Qerrors_count, float8 sample_size, float8 v_grad, float8 learning_rate);
++static int compare_float8(const void *a, const void *b);
++static float8 get_median(Datum *Qerrors_array, int length);
++
++static planner_hook_type prev_planner = NULL;
++static ExecutorRun_hook_type prev_ExecutorRun = NULL;
++static ExecutorEnd_hook_type prev_ExecutorEnd = NULL;
++
++static Query *original_query = NULL;
++static char *original_query_string = NULL;
++static int original_cursorOptions = 0;
++static ParamListInfo original_boundParams = NULL;
++static bool is_first_execution = true;
++static bool need_vector_cardinality_estimation = false;
++static bool ordering_needed = false;
++static bool is_sampling_active = false;
++
++static PlannedStmt *originalPlannedStmt;
++static PlannedStmt *original_es_plannedstmt;
++static PlannedStmt *newPlannedStmt;
++
++
++static List *vector_cardinality_results;
++static Oid hnswOid = 0;
++static Oid vectorOid = 0;
++
++static char *vector_table_name = NULL;
++static char *vector_column_name = NULL;
++static char *vector_str = NULL;
++static float range_distance_value = 0.0;
++static double model_estimated_rows = -1.0;
++static double estimated_sample_rows = -1.0;
++static bool is_vector_range_query = false;
++
++bool reuse_computation = false;
++
++static bool allow_sample_size_update = true;
++static bool should_update_sample_size = false;
++static float8 sample_size = 385;
++static int sample_update_cycle = 50;
++static double learning_rate = 0.1;
++static double lr_lambda = 0.99;
++static double momentum = 0.9;
++static double true_cardinality = 0.0;
++static double vector_table_size = 0.0;
++static double alpha = 50;
++static double beta = 1.5;
++static double v_grad = 0;
++static Datum *Qerrors_array = NULL;
++static int Qerrors_count = 0;
++
  
  /*
-  * prototypes for costsize.c
+  * Initialize index options and variables
+@@ -53,8 +159,844 @@ _PG_init(void)
+ 	HalfvecInit();
+ 	HnswInit();
+ 	IvfflatInit();
++	prev_planner = planner_hook;
++	planner_hook = pgvector_plan_planner;
++	prev_ExecutorRun = ExecutorRun_hook;
++	ExecutorRun_hook = pgvector_ExecutorRun;
++	prev_ExecutorEnd = ExecutorEnd_hook;
++	ExecutorEnd_hook = pgvector_ExecutorEnd;
++	set_baserel_rows_estimate_hook = pgvector_set_baserel_rows_estimate_hook;
++	DefineCustomRealVariable("vector.sample_size",
++                             "Sets the sample size percentage for TABLESAMPLE.",
++                             "Valid range is 0..table_size.",
++                             &sample_size,
++                             385,   
++                             1, 
++                             DBL_MAX,  
++                             PGC_USERSET,
++                             0,
++                             NULL, NULL, NULL);
++	DefineCustomIntVariable(
++		"vector.sample_update_cycle",
++		"Sets the update cycle for vector sampling.",
++		"Valid range is 1..1000.",
++		&sample_update_cycle,
++		50,    
++		1,     
++		1000,  
++		PGC_USERSET,
++		0,
++		NULL, NULL, NULL
++	);
++	DefineCustomBoolVariable(
++        "vector.update_sample_size",  
++        "Enable or disable user update of sample size.", 
++        NULL,  
++        &allow_sample_size_update,  
++        true,  
++        PGC_USERSET,  
++        0,  
++        NULL,  
++        NULL,  
++        NULL   
++    );
+ }
+ 
++
++static PlannedStmt *
++pgvector_plan_planner(Query *parse, const char *query_string, int cursorOptions, ParamListInfo boundParams)
++{
++	PlannedStmt *result;
++	if (hnswOid == 0)
++	{
++		hnswOid = get_index_am_oid("hnsw", true);
++	}
++
++	if (vectorOid == 0)
++	{
++		vectorOid = TypenameGetTypid("vector");
++	}
++
++	if (Qerrors_array == NULL) 
++	{
++		Qerrors_array = palloc(sizeof(Datum) * sample_update_cycle);
++		for (int i = 0; i < sample_update_cycle; i++)
++		{
++			Qerrors_array[i] = Float8GetDatum(0.0);
++		}
++	}
++
++	int table_count = 0;
++    count_total_tables(parse, &table_count);
++	if (table_count > 2)
++	{
++		MemoryContext oldCtx = MemoryContextSwitchTo(TopMemoryContext);
++		ordering_needed = true;
++		original_query = (Query *)copyObject(parse);
++		original_query_string = (char *)query_string;
++		original_cursorOptions = cursorOptions;
++		original_boundParams = boundParams;
++		MemoryContextSwitchTo(oldCtx);
++	}
++	
++	if (prev_planner)
++	{
++		result = prev_planner(parse, query_string, cursorOptions, boundParams);
++	}
++	else
++	{
++		result = standard_planner(parse, query_string, cursorOptions, boundParams);
++	}
++	return result;
++}
++
++
++static void
++pgvector_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction,
++                     uint64 count, bool execute_once)
++{	
++	if (is_first_execution && need_vector_cardinality_estimation)
++	{
++		if (IsParallelWorker())
++			return;
++
++		clock_t start, end;
++		start = clock();
++		vector_cardinality_results = NIL;
++		is_first_execution = false;
++		Plan *planTree = queryDesc->plannedstmt->planTree;
++		// find vector search nodes and estimate cardinality
++		bool other_node_exists = check_for_vector_search(queryDesc, (Node *) planTree);
++		if (vector_cardinality_results)
++		{
++			// replan with estimated cardinality
++			if (prev_planner)
++			{
++				newPlannedStmt = prev_planner(original_query, original_query_string, original_cursorOptions, original_boundParams);
++			}
++			else
++			{
++				newPlannedStmt = standard_planner(original_query, original_query_string, original_cursorOptions, original_boundParams);
++			}
++			reuse_computation = false;
++			originalPlannedStmt = queryDesc->plannedstmt;
++			original_es_plannedstmt = queryDesc->estate->es_plannedstmt;
++			queryDesc->plannedstmt = newPlannedStmt;
++            queryDesc->estate->es_plannedstmt = newPlannedStmt;
++            ExecutorFinish(queryDesc);
++            if (prev_ExecutorEnd)
++				prev_ExecutorEnd(queryDesc);
++			else
++				standard_ExecutorEnd(queryDesc);
++            ExecutorStart(queryDesc, 0);
++			need_vector_cardinality_estimation = false;
++			end = clock();
++			elog(LOG, "overhead time %f", (double)(end - start) / CLOCKS_PER_SEC);
++			
++			// execute with optimal plan
++			standard_ExecutorRun(queryDesc, direction, count, execute_once);
++
++			
++		}
++		else
++		{
++			if (prev_ExecutorRun)
++				prev_ExecutorRun(queryDesc, direction, count, execute_once);
++			else
++				standard_ExecutorRun(queryDesc, direction, count, execute_once);
++			return;
++		}
++	}
++	else
++	{
++		if (prev_ExecutorRun)
++			prev_ExecutorRun(queryDesc, direction, count, execute_once);
++		else
++			standard_ExecutorRun(queryDesc, direction, count, execute_once);
++		return;
++	}
++}
++
++
++static void 
++pgvector_ExecutorEnd(QueryDesc *queryDesc)
++{
++	if (is_first_execution)
++	{
++		ordering_needed = false;
++		need_vector_cardinality_estimation = false;
++		model_estimated_rows = -1.0;
++		estimated_sample_rows = -1.0;
++	}
++	else if (is_first_execution == false && need_vector_cardinality_estimation == false)
++	{
++		// update sample size
++		if (estimated_sample_rows != -1.0 && allow_sample_size_update == true)
++		{
++			get_true_cardinality_for_vector_query(queryDesc, queryDesc->planstate);
++			double Q_error = Max(estimated_sample_rows / true_cardinality, true_cardinality / estimated_sample_rows);
++			Qerrors_array[Qerrors_count] = Float8GetDatum(Q_error);
++			if (Qerrors_count == sample_update_cycle - 1)
++			{
++				double median_qerror = get_median(Qerrors_array, sample_update_cycle);
++				double grad = alpha * (median_qerror - beta) - (100-alpha) * (sample_size / vector_table_size);
++				v_grad = momentum * v_grad + learning_rate * grad;
++				learning_rate = learning_rate * lr_lambda;
++				sample_size = sample_size + v_grad;
++
++			}
++			Qerrors_count++;
++			if (Qerrors_count == sample_update_cycle)
++			{
++				Qerrors_count = 0;
++			}
++			estimated_sample_rows = -1.0;
++			update_qerrors_array(vector_table_name, Qerrors_array, Qerrors_count, sample_size, v_grad, learning_rate);
++		}
++		ordering_needed = false;
++		list_free_deep(vector_cardinality_results);
++		vector_cardinality_results = NIL;
++		is_first_execution = true;
++		model_estimated_rows = -1.0;
++		
++		is_vector_range_query = false;
++		reuse_computation = true;
++	}
++
++	if (prev_ExecutorEnd)
++		prev_ExecutorEnd(queryDesc);
++	else
++		standard_ExecutorEnd(queryDesc);
++}
++
++
++static void
++pgvector_set_baserel_rows_estimate_hook(PlannerInfo *root, RelOptInfo *rel)
++{
++	if (has_vector_column(root, rel))
++	{
++		if (is_first_execution && ordering_needed && !is_sampling_active)
++		{
++			if (is_vector_range_query == false)
++			{
++				is_vector_range_query = check_vector_range_query(root, rel);
++				if (is_vector_range_query)
++				{
++					need_vector_cardinality_estimation = true;
++				}
++			}
++		}
++		else if (!is_first_execution)
++		{
++			if (vector_cardinality_results)
++			{
++				Oid relid = root->simple_rte_array[rel->relid]->relid;
++				ListCell *lc;
++				// get results of vector search cardinality estimation
++				foreach(lc, vector_cardinality_results)
++				{
++					VectorSearchResult *result = (VectorSearchResult *) lfirst(lc);
++					Oid tableoid = result->oid;
++					if (tableoid == relid)
++					{
++						rel->rows = clamp_row_est(result->processed_tuples);
++						return;
++					}
++				}
++			}
++			
++		}
++	}
++
++	set_baserel_rows_estimate_standard(root, rel);
++}
++
++
++static bool
++check_for_vector_search(QueryDesc *queryDesc, Node *node)
++{
++	bool other_node_exists = false;
++	int vector_tuples_processed = 0;
++    if (node == NULL)
++	{
++		return false;
++	}
++        
++	Plan *plan = (Plan *)node;
++	
++    if (IsA(node, IndexScan) || IsA(node, IndexOnlyScan))
++    {
++        IndexScan *indexScan = (IndexScan *) node;
++        Oid indexid = indexScan->indexid;
++
++        Relation indexRel = relation_open(indexid, NoLock);
++        Oid indexAmOid = indexRel->rd_rel->relam;
++		relation_close(indexRel, AccessShareLock);
++        // check if the index is HNSW index
++        if (indexAmOid == hnswOid)
++        {
++			Oid tableoid = IndexGetRelation(indexid, true);
++			reuse_computation = true;
++			List *hnswNodes = NIL;
++			hnswNodes = lappend(hnswNodes, node);
++			// execute HNSW vector search
++			PlannedStmt *hnswPlannedStmt = CreatePlannedStmtForVectorSearchNodes(queryDesc, hnswNodes);
++			QueryDesc *hnswQueryDesc = CreateQueryDesc(hnswPlannedStmt,
++													queryDesc->sourceText,
++													queryDesc->snapshot,
++													queryDesc->crosscheck_snapshot,
++													None_Receiver,
++													queryDesc->params,
++													queryDesc->queryEnv,
++													0);
++			ExecutorStart(hnswQueryDesc, 0);
++			ExecutorRun(hnswQueryDesc, ForwardScanDirection, 0L, true);
++			vector_tuples_processed = hnswQueryDesc->estate->es_processed;
++			VectorSearchResult *hnswResult = palloc(sizeof(VectorSearchResult));
++			hnswResult->node = node;
++			hnswResult->oid = tableoid;
++			hnswResult->processed_tuples = vector_tuples_processed;
++			elog(LOG, "Vector search cardinality estimation: %d", vector_tuples_processed);
++			vector_cardinality_results = lappend(vector_cardinality_results, hnswResult);
++			
++			ExecutorFinish(hnswQueryDesc);
++			if (prev_ExecutorEnd)
++				prev_ExecutorEnd(hnswQueryDesc);
++			else
++				standard_ExecutorEnd(hnswQueryDesc);
++			FreeQueryDesc(hnswQueryDesc);
++
++			return other_node_exists;
++        }
++		else
++		{
++			other_node_exists = true;
++		}
++    }
++	else if (IsA(node, SubqueryScan))
++	{
++		SubqueryScan *subqueryScanNode = (SubqueryScan *) node;
++		
++		if (check_for_vector_search(queryDesc, (Node *) subqueryScanNode->subplan))
++			other_node_exists = true;
++	}
++	else if (IsA(node, SeqScan))
++	{
++		SeqScan *seqScanNode = (SeqScan *) node;
++
++		RangeTblEntry *rte = rt_fetch(seqScanNode->scan.scanrelid, queryDesc->estate->es_range_table);
++		
++		Oid tableoid = rte->relid;
++		
++		
++		Relation seqScanRel = relation_open(tableoid, AccessShareLock);
++		char *tableName = get_rel_name(tableoid);
++		// execute sampling for vector table
++		if (strcmp(tableName, vector_table_name) == 0)
++		{
++			if (is_vector_range_query)
++			{
++				clock_t start, end;		
++				start = clock();
++				double total_rows = seqScanRel->rd_rel->reltuples;
++				if (allow_sample_size_update == true)
++				{
++					load_qerrors_array(vector_table_name, Qerrors_array, &Qerrors_count, &sample_size, &v_grad, &learning_rate);
++				}
++				estimated_sample_rows = estimate_cardinality_with_sampling(total_rows);
++				VectorSearchResult *sampling_result = palloc(sizeof(VectorSearchResult));
++				sampling_result->node = node;
++				sampling_result->oid = tableoid;
++				sampling_result->processed_tuples = estimated_sample_rows;
++				vector_cardinality_results = lappend(vector_cardinality_results, sampling_result);
++				end = clock();
++				elog(LOG, "sampling CE time %f", (double) (end - start));
++			}
++		}
++		else {
++			other_node_exists = true;
++		}
++		relation_close(seqScanRel, AccessShareLock);
++
++		return other_node_exists;
++	}
++	else
++	{
++		other_node_exists = true;
++	}
++
++    if (check_for_vector_search(queryDesc, (Node *) plan->lefttree))
++		other_node_exists = true;
++
++    if (check_for_vector_search(queryDesc, (Node *) plan->righttree))
++		other_node_exists = true;
++
++    return other_node_exists;
++}
++
++
++static bool
++check_vector_range_query(PlannerInfo *root, RelOptInfo *rel)
++{
++	bool vector_range_query = false;
++	RangeTblEntry *rte;
++	Oid relid = root->simple_rte_array[rel->relid]->relid;
++	
++
++	ListCell *lc;
++	foreach(lc, rel->baserestrictinfo)
++    {
++        RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
++        Expr *clause = rinfo->clause;
++
++        if (IsA(clause, OpExpr))
++        {
++            OpExpr *opexpr = (OpExpr *) clause;
++
++            Oid opno = opexpr->opno;
++            const char *opname = get_opname(opno);
++
++            if (strcmp(opname, "<") == 0 || strcmp(opname, ">") == 0 ||
++                strcmp(opname, "<=") == 0 || strcmp(opname, ">=") == 0)
++            {
++                Expr *left_expr = (Expr *) linitial(opexpr->args);
++                Expr *right_expr = (Expr *) lsecond(opexpr->args);
++
++				
++                if (IsA(left_expr, OpExpr))
++                {
++                    OpExpr *left_opexpr = (OpExpr *) left_expr;
++                    const char *left_opname = get_opname(left_opexpr->opno);
++
++                    if (strcmp(left_opname, "<->") == 0)
++                    {
++						vector_range_query = true;
++						if (IsA(left_opexpr, OpExpr))
++						{
++							OpExpr *left = (OpExpr *) left_opexpr;
++							Expr *left_expr1 = (Expr *) linitial(left->args);
++							Expr *right_expr2 = (Expr *) lsecond(left->args);
++							if (IsA(left_expr1, Var))
++							{
++								Var *var = (Var *) left_expr1;
++								rte = planner_rt_fetch(var->varno, root);
++								vector_column_name = get_rte_attribute_name(rte, var->varattno);
++							}
++							if (IsA(right_expr2, Const))
++							{
++								Const *const_val = (Const *) right_expr2;
++								
++								if(const_val->consttype == vectorOid)
++								{
++									Vector *vector = (Vector *) DatumGetPointer(const_val->constvalue);
++									vector_str = DatumGetCString(DirectFunctionCall1(vector_out, PointerGetDatum(vector)));
++									vector_table_name = get_rel_name(relid);
++								}
++							}
++						}
++                    }
++					if (IsA(right_expr, Const))
++					{
++						Const *const_val = (Const *) right_expr;
++
++						if (const_val->consttype == FLOAT8OID)
++						{
++							range_distance_value = DatumGetFloat8(const_val->constvalue);
++						}
++					}
++                }
++            }
++        }
++    }
++	return vector_range_query;
++}
++
++
++static bool
++has_vector_column(PlannerInfo *root, RelOptInfo *rel)
++{
++    RangeTblEntry *rte = root->simple_rte_array[rel->relid];
++	if (rte == NULL || rte->rtekind != RTE_RELATION)
++    {
++        return false;
++    }
++    Oid relid = rte->relid;
++    Relation relation;
++    TupleDesc tupleDesc;
++    bool has_vector = false;
++
++    relation = relation_open(relid, AccessShareLock);
++    tupleDesc = RelationGetDescr(relation);
++
++    for (int i = 0; i < tupleDesc->natts; i++)
++    {
++        Form_pg_attribute attr = TupleDescAttr(tupleDesc, i);
++
++        if (!attr->attisdropped)
++        {
++            if (attr->atttypid == vectorOid)
++            {
++                has_vector = true;
++                break;
++            }
++        }
++    }
++
++    /* Close the relation */
++    relation_close(relation, AccessShareLock);
++    return has_vector;
++}
++
++
++static PlannedStmt *
++CreatePlannedStmtForVectorSearchNodes(QueryDesc *queryDesc, List *hnswNodes)
++{
++    PlannedStmt *newPlannedStmt = makeNode(PlannedStmt);
++
++    newPlannedStmt->commandType = CMD_SELECT;  
++    newPlannedStmt->queryId = queryDesc->plannedstmt->queryId;
++    newPlannedStmt->hasReturning = false;
++    newPlannedStmt->hasModifyingCTE = false;
++    newPlannedStmt->canSetTag = true;
++    newPlannedStmt->transientPlan = false;
++    newPlannedStmt->dependsOnRole = false;
++    newPlannedStmt->parallelModeNeeded = false;
++
++    Plan *topPlan = (Plan *) linitial(hnswNodes);
++    newPlannedStmt->planTree = topPlan;
++
++    newPlannedStmt->rtable = queryDesc->plannedstmt->rtable;
++    newPlannedStmt->subplans = NIL;
++    newPlannedStmt->resultRelations = NIL;
++    newPlannedStmt->rowMarks = NIL;
++    newPlannedStmt->relationOids = queryDesc->plannedstmt->relationOids;
++    newPlannedStmt->invalItems = queryDesc->plannedstmt->invalItems;
++	newPlannedStmt->permInfos = queryDesc->plannedstmt->permInfos;
++    return newPlannedStmt;
++}
++
++
++static double
++estimate_cardinality_with_sampling(double total_rows)
++{
++    StringInfoData query;
++    int ret;
++    double count_result = 0.0;
++    bool isnull;
++    is_sampling_active = true;
++
++    initStringInfo(&query);
++
++    double sample_ratio = sample_size / total_rows * 100;
++    appendStringInfo(&query,
++                     "SELECT COUNT(*)::float FROM (SELECT %s FROM %s TABLESAMPLE SYSTEM(%f)) p "
++                     "WHERE p.%s <-> '%s' < %f;",
++                     vector_column_name, vector_table_name, sample_ratio,
++                     vector_column_name, vector_str, range_distance_value);
++
++    SPI_connect();
++    ret = SPI_execute(query.data, true, 0);
++
++    if (ret != SPI_OK_SELECT)
++    {
++        SPI_finish();
++    }
++
++    if (SPI_processed > 0)
++    {
++        TupleDesc tupdesc = SPI_tuptable->tupdesc;
++        HeapTuple tuple = SPI_tuptable->vals[0];
++        Datum count_datum = SPI_getbinval(tuple, tupdesc, 1, &isnull);
++
++        if (!isnull)
++        {
++            count_result = DatumGetFloat8(count_datum);
++        }
++    }
++
++    SPI_finish();
++
++    pfree(query.data);
++    is_sampling_active = false;
++
++    if (count_result == 0)
++    {
++        count_result = 1;
++    }
++
++    count_result = count_result / sample_ratio * 100;
++
++    return count_result;
++}
++
++
++static void 
++get_true_cardinality_for_vector_query(QueryDesc *queryDesc, PlanState *planstate) 
++{
++    if (planstate == NULL) {
++        return;
++    }
++
++    Plan *plan = planstate->plan;
++    Instrumentation *instrument = planstate->instrument;
++
++    if (IsA(plan, SeqScan) || IsA(plan, IndexScan) || IsA(plan, BitmapHeapScan)) {
++        char *relname = get_tablename_from_scan(queryDesc, ((Scan *)plan)->scanrelid);
++
++		if (strcmp(relname, vector_table_name) == 0){
++			true_cardinality = instrument->ntuples;
++			if (vector_table_size == 0.0)
++			{
++				vector_table_size = get_relation_row_count(queryDesc, ((Scan *)plan)->scanrelid);
++			}
++			return;
++		}
++    }
++
++    if (outerPlanState(planstate)) {
++        get_true_cardinality_for_vector_query(queryDesc, outerPlanState(planstate));
++    }
++    if (innerPlanState(planstate)) {
++        get_true_cardinality_for_vector_query(queryDesc, innerPlanState(planstate));
++    }
++
++}
++
++
++static double 
++get_relation_row_count(QueryDesc *queryDesc, Index scanrelid) 
++{
++    if (queryDesc == NULL || queryDesc->plannedstmt == NULL || queryDesc->plannedstmt->rtable == NULL) {
++        elog(WARNING, "Invalid QueryDesc or scanrelid");
++        return 0.0;
++    }
++
++    List *rtable = queryDesc->plannedstmt->rtable;
++    if (scanrelid == 0 || scanrelid > list_length(rtable)) {
++        elog(WARNING, "Invalid scanrelid: %u", scanrelid);
++        return 0.0;
++    }
++
++    RangeTblEntry *rte = list_nth(rtable, scanrelid - 1);
++
++    if (rte == NULL || rte->relid == InvalidOid) {
++        elog(WARNING, "RangeTblEntry not found or invalid relid for scanrelid: %u", scanrelid);
++        return 0.0;
++    }
++
++    Oid relid = rte->relid;
++    HeapTuple tuple;
++    Form_pg_class relform;
++    double row_count = 0.0;
++
++    tuple = SearchSysCache1(RELOID, ObjectIdGetDatum(relid));
++    if (HeapTupleIsValid(tuple)) {
++        relform = (Form_pg_class) GETSTRUCT(tuple);
++        row_count = relform->reltuples;  
++        ReleaseSysCache(tuple);
++    } else {
++        elog(WARNING, "Relation with OID %u not found in pg_class", relid);
++    }
++
++    return row_count;
++}
++
++static char *
++get_tablename_from_scan(QueryDesc *queryDesc, Index scanrelid) 
++{
++    if (scanrelid == 0 || queryDesc->plannedstmt->rtable == NULL) {
++        return NULL;
++    }
++
++    List *rtable = queryDesc->plannedstmt->rtable;
++    RangeTblEntry *rte = list_nth(rtable, scanrelid - 1);
++
++    if (rte->relid != InvalidOid) {
++        return get_rel_name(rte->relid);
++    }
++
++    return NULL;
++}
++
++
++static void 
++count_total_tables(Query *query, int *table_count)
++{
++    ListCell *lc;
++
++    foreach(lc, query->rtable)
++    {
++        RangeTblEntry *rte = (RangeTblEntry *) lfirst(lc);
++
++        if (rte->rtekind == RTE_RELATION)
++        {
++            (*table_count)++;
++        }
++		
++        else if (rte->rtekind == RTE_SUBQUERY)
++        {
++            count_total_tables(rte->subquery, table_count);
++        }
++    }
++
++    if (query->jointree && query->jointree->quals)
++    {
++        count_tables_in_quals(query->jointree->quals, table_count);
++    }
++}
++
++static void 
++count_tables_in_quals(Node *quals, int *table_count)
++{
++    if (quals == NULL)
++        return;
++
++    if (IsA(quals, SubLink))
++    {
++        SubLink *sublink = (SubLink *) quals;
++        Query *subquery = (Query *) sublink->subselect;
++        count_total_tables(subquery, table_count);
++    }
++    else if (IsA(quals, BoolExpr)) 
++    {
++        BoolExpr *bool_expr = (BoolExpr *) quals;
++        ListCell *lc;
++
++        foreach(lc, bool_expr->args)
++        {
++            Node *arg = (Node *) lfirst(lc);
++            count_tables_in_quals(arg, table_count);
++        }
++    }
++}
++
++
++static void 
++load_qerrors_array(const char *table_name, Datum *Qerrors_array, int *Qerrors_count, float8 *sample_size, float8 *v_grad, float8 *learning_rate) 
++{
++
++    SPI_connect();
++
++    char *select_query = "SELECT sample_size, recent_qerrors, qerror_count, v_grad, learning_rate FROM pgvector_qerror WHERE table_name = $1";
++    Oid argtypes[1] = {TEXTOID};
++    Datum values[1] = {CStringGetTextDatum(table_name)};
++
++    int ret = SPI_execute_with_args(select_query, 1, argtypes, values, NULL, false, 0);
++
++    if (ret == SPI_OK_SELECT && SPI_processed > 0) {
++        bool isnull;
++
++        Datum sample_size_datum = SPI_getbinval(SPI_tuptable->vals[0], SPI_tuptable->tupdesc, 1, &isnull);
++        *sample_size = isnull ? 385 : DatumGetFloat8(sample_size_datum);
++
++        Datum recent_qerrors = SPI_getbinval(SPI_tuptable->vals[0], SPI_tuptable->tupdesc, 2, &isnull);
++
++        Datum qerror_count_datum = SPI_getbinval(SPI_tuptable->vals[0], SPI_tuptable->tupdesc, 3, &isnull);
++        *Qerrors_count = DatumGetInt32(qerror_count_datum);
++
++        Datum v_grad_datum = SPI_getbinval(SPI_tuptable->vals[0], SPI_tuptable->tupdesc, 4, &isnull);
++        *v_grad = isnull ? 0.0 : DatumGetFloat8(v_grad_datum);
++
++        Datum learning_rate_datum = SPI_getbinval(SPI_tuptable->vals[0], SPI_tuptable->tupdesc, 5, &isnull);
++        *learning_rate = isnull ? 0.1 : DatumGetFloat8(learning_rate_datum);
++
++        ArrayType *array = DatumGetArrayTypeP(recent_qerrors);
++        Datum *elements;
++        bool *nulls;
++        int num_elements;
++
++        deconstruct_array(array, FLOAT8OID, sizeof(float8), true, 'd', &elements, &nulls, &num_elements);
++
++        MemoryContext oldCtx = MemoryContextSwitchTo(TopMemoryContext);
++
++        for (int i = 0; i < num_elements; i++) {
++            Qerrors_array[i] = elements[i];
++        }
++
++        MemoryContextSwitchTo(oldCtx);
++
++        pfree(elements);
++    } else {
++        elog(WARNING, "No rows found for table_name: %s", table_name);
++    }
++
++    SPI_finish();
++}
++
++static void 
++update_qerrors_array(const char *table_name, Datum *Qerrors_array, int Qerrors_count, float8 sample_size, float8 v_grad, float8 learning_rate) 
++{
++    ArrayType *array = construct_array(
++        Qerrors_array,     
++        sample_update_cycle,     
++        FLOAT8OID,         
++        sizeof(float8),    
++        true,              
++        'd'                
++    );
++
++    SPI_connect();
++
++    char *update_query = "UPDATE pgvector_qerror "
++                         "SET recent_qerrors = $1, qerror_count = $2, sample_size = $3, v_grad = $4, learning_rate = $5 "
++                         "WHERE table_name = $6";
++
++    Oid argtypes[6] = {FLOAT8ARRAYOID, INT4OID, FLOAT8OID, FLOAT8OID, FLOAT8OID, TEXTOID};
++    Datum values[6] = {
++        PointerGetDatum(array),             
++        Int32GetDatum(Qerrors_count),       
++        Float8GetDatum(sample_size),        
++        Float8GetDatum(v_grad),             
++        Float8GetDatum(learning_rate),      
++        CStringGetTextDatum(table_name)     
++    };
++
++    int ret = SPI_execute_with_args(update_query, 6, argtypes, values, NULL, false, 0);
++
++    if (ret == SPI_OK_UPDATE && SPI_processed == 0) {
++        char *insert_query = "INSERT INTO pgvector_qerror (recent_qerrors, qerror_count, sample_size, v_grad, learning_rate, table_name) "
++                             "VALUES ($1, $2, $3, $4, $5, $6)";
++
++        SPI_execute_with_args(insert_query, 6, argtypes, values, NULL, false, 0);
++    }
++
++    SPI_finish();
++}
++
++static int 
++compare_float8(const void *a, const void *b) 
++{
++    float8 fa = *(const float8 *)a;
++    float8 fb = *(const float8 *)b;
++    if (fa < fb) return -1;
++    if (fa > fb) return 1;
++    return 0;
++}
++
++static float8 
++get_median(Datum *Qerrors_array, int length) 
++{
++    float8 *values = palloc(length * sizeof(float8));
++    for (int i = 0; i < length; i++) {
++        values[i] = DatumGetFloat8(Qerrors_array[i]);
++    }
++
++    qsort(values, length, sizeof(float8), compare_float8);
++
++    float8 median;
++    if (length % 2 == 1) {
++        median = values[length / 2];
++    } else {
++        median = (values[length / 2 - 1] + values[length / 2]) / 2.0;
++    }
++
++    pfree(values);
++    return median;
++}
++
++
++
++
+ /*
+  * Ensure same dimensions
+  */
+diff --git a/src/vector.h b/src/vector.h
+old mode 100644
+new mode 100755
+index 5075ae0..b7c3881
+--- a/src/vector.h
++++ b/src/vector.h
+@@ -8,6 +8,8 @@
+ #define PG_GETARG_VECTOR_P(x)	DatumGetVector(PG_GETARG_DATUM(x))
+ #define PG_RETURN_VECTOR_P(x)	PG_RETURN_POINTER(x)
+ 
++#include "executor/execdesc.h"
++
+ typedef struct Vector
+ {
+ 	int32		vl_len_;		/* varlena header (do not touch directly!) */
+@@ -16,8 +18,22 @@ typedef struct Vector
+ 	float		x[FLEXIBLE_ARRAY_MEMBER];
+ }			Vector;
+ 
++// List*		vectorIndexOids;
++
++typedef struct VectorSearchResult
++{
++	Node *node;
++	Oid oid;
++	float4 original_tuples;
++	float4 processed_tuples;
++	QueryDesc *queryDesc;
++}		VectorSearchResult;
++
++extern bool reuse_computation;
++
+ Vector	   *InitVector(int dim);
+ void		PrintVector(char *msg, Vector * vector);
+ int			vector_cmp_internal(Vector * a, Vector * b);
+ 
++
+ #endif
+diff --git a/test/expected/bit.out b/test/expected/bit.out
+old mode 100644
+new mode 100755
+diff --git a/test/expected/btree.out b/test/expected/btree.out
+old mode 100644
+new mode 100755
+diff --git a/test/expected/cast.out b/test/expected/cast.out
+old mode 100644
+new mode 100755
+diff --git a/test/expected/copy.out b/test/expected/copy.out
+old mode 100644
+new mode 100755
+diff --git a/test/expected/halfvec.out b/test/expected/halfvec.out
+old mode 100644
+new mode 100755
+diff --git a/test/expected/hnsw_bit.out b/test/expected/hnsw_bit.out
+old mode 100644
+new mode 100755
+diff --git a/test/expected/hnsw_halfvec.out b/test/expected/hnsw_halfvec.out
+old mode 100644
+new mode 100755
+diff --git a/test/expected/hnsw_sparsevec.out b/test/expected/hnsw_sparsevec.out
+old mode 100644
+new mode 100755
+diff --git a/test/expected/hnsw_vector.out b/test/expected/hnsw_vector.out
+old mode 100644
+new mode 100755
+diff --git a/test/expected/ivfflat_bit.out b/test/expected/ivfflat_bit.out
+old mode 100644
+new mode 100755
+diff --git a/test/expected/ivfflat_halfvec.out b/test/expected/ivfflat_halfvec.out
+old mode 100644
+new mode 100755
+diff --git a/test/expected/ivfflat_vector.out b/test/expected/ivfflat_vector.out
+old mode 100644
+new mode 100755
+diff --git a/test/expected/sparsevec.out b/test/expected/sparsevec.out
+old mode 100644
+new mode 100755
+diff --git a/test/expected/vector_type.out b/test/expected/vector_type.out
+old mode 100644
+new mode 100755
+diff --git a/vector.control b/vector.control
+old mode 100644
+new mode 100755
