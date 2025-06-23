@@ -1276,22 +1276,4 @@ index 9bcb290..0a6adec 100644
 +        NULL   
 +    );
  }
-\ No newline at end of file
-diff --git a/thirdparty/Postgres b/thirdparty/Postgres
---- a/thirdparty/Postgres
-+++ b/thirdparty/Postgres
-@@ -1 +1 @@
--Subproject commit e849f3f1f884ad140b60a24354c6371cbd2efbb6
-+Subproject commit e849f3f1f884ad140b60a24354c6371cbd2efbb6-dirty
-diff --git a/thirdparty/SPTAG b/thirdparty/SPTAG
---- a/thirdparty/SPTAG
-+++ b/thirdparty/SPTAG
-@@ -1 +1 @@
--Subproject commit de5b7f8c57c45c31ac1caeaf3b9f1d0e1668c395
-+Subproject commit de5b7f8c57c45c31ac1caeaf3b9f1d0e1668c395-dirty
-diff --git a/thirdparty/hnsw b/thirdparty/hnsw
---- a/thirdparty/hnsw
-+++ b/thirdparty/hnsw
-@@ -1 +1 @@
--Subproject commit 443d667478fddf1e13f2e06b1da4e1ec3a9fe716
-+Subproject commit 443d667478fddf1e13f2e06b1da4e1ec3a9fe716-dirty
+ 
