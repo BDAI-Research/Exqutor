@@ -1,6 +1,6 @@
 #!/bin/bash
 
-dir = "$(dirname "$0")"
+dir="$(cd "$(dirname "$0")" && pwd)"
 
 export PGBASE="$(pwd)/psql"
 
