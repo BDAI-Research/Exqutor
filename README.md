@@ -36,6 +36,22 @@ Update the CSV path in `tpch-load.sql`.
 
 Insert data using `tpch-load.sql` and `insert_partsupp_deep_PostgreSQL.py`.
 
+#### VBASE + Exqutor
+
+1. Install VBASE + Exqutor
+
+```sh
+cd PostgreSQL/VBASE
+./apply_patch.sh
+./build.sh
+```
+
+2. Setup Vector-augmented_SQL_analytics
+
+Update the CSV path in `tpch-load.sql`.
+
+Insert data using `tpch-load.sql` and `insert_partsupp_deep_PostgreSQL.py`.
+
 
 #### DuckDB
 
