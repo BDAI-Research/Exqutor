@@ -13,6 +13,6 @@ fi
 
 if [ -d MSVBASE/thirdparty/Postgres ]; then
   cd MSVBASE/thirdparty/Postgres
-  git apply ../../../../patch/vbase_Postgres.patch || true
+  git apply ../../../patch/vbase_Postgres.patch || true
   cd "$dir"
 fi
