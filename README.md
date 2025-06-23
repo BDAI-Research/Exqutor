@@ -71,6 +71,13 @@ SET hnsw.ef_search = 400;
 ```
 
 ```sql
+# PostgreSQL pgvector
+CREATE INDEX partsupp_hnsw ON partsupp USING hnsw(ps_embedding) WITH (dimension=96, distmethod=l2_distance);
+
+```
+
+
+```sql
 # DuckDB-VSS
 CREATE INDEX partsupp_hnsw on partsupp USING HNSW (ps_embedding) with (metric = 'l2sq');
 SET hnsw_enable_experimental_persistence = true;
