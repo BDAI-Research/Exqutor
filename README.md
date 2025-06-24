@@ -80,7 +80,7 @@ Build HNSW index
 
 ```sql
 # PostgreSQL pgvector
-CREATE INDEX partsupp_hnsw ON partsupp USING hnsw (ps_embedding vector_l2_ops) WITH (m = 16, ef_construction = 128);
+CREATE INDEX partsupp_hnsw ON partsupp USING hnsw (ps_embedding vector_l2_ops) WITH (m = 16, ef_construction = 200);
 
 # query options
 SET hnsw.ef_search = 400;
@@ -95,7 +95,7 @@ CREATE INDEX partsupp_hnsw ON partsupp USING hnsw(ps_embedding) WITH (dimension=
 
 ```sql
 # DuckDB-VSS
-CREATE INDEX partsupp_hnsw on partsupp USING HNSW (ps_embedding) with (metric = 'l2sq');
+CREATE INDEX partsupp_hnsw on partsupp USING HNSW (ps_embedding) with (metric = 'l2sq', ef_construction = 200);
 SET hnsw_enable_experimental_persistence = true;
 
 # query options
