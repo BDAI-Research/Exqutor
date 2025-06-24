@@ -35,6 +35,8 @@ cmake -DCMAKE_INSTALL_PREFIX=${PGBASE}/share/postgresql -DLIBRARYONLY=ON -DSEEK_
 -DCMAKE_BUILD_TYPE=Release .. && \
 make -j$(nproc)
 
+cd ..
+
 cp ./build/vectordb.so ${PGBASE}/lib/postgresql/vectordb.so
 cp ./build/vectordb.control ${PGBASE}/share/postgresql/extension/vectordb.control
 cp ./sql/vectordb.sql ${PGBASE}/share/postgresql/extension/vectordb--0.1.0.sql

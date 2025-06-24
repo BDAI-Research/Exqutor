@@ -13,7 +13,7 @@ git apply ../../../patch/vbase_hnsw.patch
 cd "$dir"
 
 
-cd MSVBASE/thirdparty/spann
+cd MSVBASE/thirdparty/SPTAG
 git apply ../../../patch/vbase_spann.patch
 cd "$dir"
 
