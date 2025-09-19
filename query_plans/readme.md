@@ -1,6 +1,6 @@
 # Exqutor Query Plans
 - [ECQO with Vector Indexes](#exqutor-with-vector-indexes-ecqo)
-- [Sampling without Indexes](#exqutor-without-indexes-sampling)
+- [Sampling without Indexes](#exqutor-without-vector-indexes-sampling)
 
 ## Exqutor with Vector Indexes (ECQO)
 An optimization technique for VAQs with vector indexes, integrating ECQO into query planning by applying ANN searches only to vector tables. These results are reused at execution time without incurring redundant overhead.
