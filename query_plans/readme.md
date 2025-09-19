@@ -1,9 +1,12 @@
 # Exqutor Query Plans
+- [ECQO with Vector Indexes](#ecqo-with-vector-indexes-ecqo)
+- [Sampling without Indexes](#adaptive-sampling-without-indexes-sampling)
 
 ## Exqutor with Vector Indexes (ECQO)
+An optimization technique for VAQs with vector indexes, integrating ECQO into query planning by applying ANN searches only to vector tables. These results are reused at execution time without incurring redundant overhead.
 ### TPC-H Q3 Query Plan
 <div align="center">
-  <img src="figures/q3_ecqo.jpg" alt="Q3 plan with ECQO" width="80%">
+  <img src="figures/q3_ecqo.jpg" alt="Q3 plan with ECQO" width="80%"  style="border:2px solid black;">
 </div>
 
 ### TPC-H Q5 Query Plan
@@ -41,23 +44,26 @@
     <img src="figures/q20_ecqo.jpg" alt="Q20 plan with ECQO" width="80%">
 </div> 
 
-## Exqutor without Vector Indexes (Adaptive Sampling)
+## Exqutor without Vector Indexes (Sampling)
+A sampling-based cardinality estimation approach for VAQs without vector indexes. Exqutor employs adaptive sampling to improve accuracy by dynamically adjusting the sample size based on Q-Error through a momentum-based adjustment mechanism and
+a learning rate scheduler.
+
 ### TPC-H Q3 Query Plan
 <div align="center">
-    <img src="figures/q3_sampling.jpg" alt="Q3 plan with Adaptive Sampling" width="80%">
+    <img src="figures/q3_sampling.jpg" alt="Q3 plan with Sampling" width="80%">
 </div>
 
 ### TPC-H Q8 Query Plan
 <div align="center">
-    <img src="figures/q8_sampling.jpg" alt="Q8 plan with Adaptive Sampling" width="80%">
+    <img src="figures/q8_sampling.jpg" alt="Q8 plan with Sampling" width="80%">
 </div>  
 
 ### TPC-H Q10 Query Plan
 <div align="center">
-    <img src="figures/q10_sampling.jpg" alt="Q10 plan with Adaptive Sampling" width="80%">
+    <img src="figures/q10_sampling.jpg" alt="Q10 plan with Sampling" width="80%">
 </div> 
 
 ### TPC-H Q12 Query Plan
 <div align="center">
-    <img src="figures/q12_sampling.jpg" alt="Q12 plan with Adaptive Sampling" width="80%">
+    <img src="figures/q12_sampling.jpg" alt="Q12 plan with Sampling" width="80%">
 </div>
