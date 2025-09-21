@@ -3,7 +3,6 @@
 ## Database and Schema
 The schema is based on the TPC-DS benchmark, extended with vector columns for `image_embedding` in the `item` table. `image_embedding` is a vector column that stores vector embeddings.
 
-<br/><br/>
 
 <div align="center">
   <img src="figures/vaq_tpc-ds_schema.png" alt="Vector-augmented SQL analytics Schema extended TPC-DS benchmark" width="70%"/>
