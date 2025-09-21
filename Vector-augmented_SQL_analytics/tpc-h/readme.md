@@ -6,7 +6,7 @@ The schema is based on the TPC-H benchmark, extended with vector columns for the
 <br>
 
 <div align="center">
-  <img src="figures/vaq_tpc-h_schema.png" alt="Vector-augmented SQL analytics Schema extended TPC-H benchmark" width="80%"/>
+  <img src="figures/vaq_tpc-h_schema.png" alt="Vector-augmented SQL analytics Schema extended TPC-H benchmark" width="70%"/>
 </div>
 
 ### Vector Datasets
