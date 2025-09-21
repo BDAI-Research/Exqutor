@@ -1,4 +1,3 @@
--- Replace :embedding with the query vector text literal, e.g. '[0.1, 0.2, ...]'
 SELECT i.i_item_desc,
        w.w_warehouse_name,
        d1.d_week_seq
@@ -20,5 +19,5 @@ WHERE d1.d_week_seq = d2.d_week_seq
   AND hd.hd_buy_potential = '501-1000'
   AND d1.d_year = 2002
   AND cd.cd_marital_status = 'M'
-  AND i.i_embedding <-> :embedding < 1.08
-ORDER BY i.i_embedding <-> :embedding;
+  AND i.i_embedding <-> 'image_embedding' < 1.08
+ORDER BY i.i_embedding <-> 'image_embedding';

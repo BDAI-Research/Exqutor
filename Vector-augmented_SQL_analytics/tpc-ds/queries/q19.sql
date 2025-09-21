@@ -1,4 +1,3 @@
--- Replace :embedding with the query vector text literal, e.g. '[0.1, 0.2, ...]'
 SELECT i.i_brand_id   AS brand_id,
        i.i_brand      AS brand,
        i.i_manufact_id,
@@ -13,5 +12,5 @@ WHERE i.i_manager_id = 14
   AND d.d_moy = 11
   AND d.d_year = 2002
   AND SUBSTR(ca.ca_zip, 1, 5) <> SUBSTR(s.s_zip, 1, 5)
-  AND i.i_embedding <-> :embedding < 1.20
-ORDER BY i.i_embedding <-> :embedding;
+  AND i.i_embedding <-> 'image_embedding' < 1.20
+ORDER BY i.i_embedding <-> 'image_embedding';

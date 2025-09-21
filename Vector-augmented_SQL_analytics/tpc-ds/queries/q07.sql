@@ -1,4 +1,3 @@
--- Replace :embedding with the query vector text literal, e.g. '[0.1, 0.2, ...]'
 SELECT i.i_item_id
 FROM store_sales      AS ss
 JOIN customer_demographics AS cd ON ss.ss_cdemo_sk = cd.cd_demo_sk
@@ -10,5 +9,5 @@ WHERE cd.cd_gender = 'M'
   AND cd.cd_education_status = '4 yr Degree'
   AND (p.p_channel_email = 'N' OR p.p_channel_event = 'N')
   AND d.d_year = 2001
-  AND i.i_embedding <-> :embedding < 1.08
-ORDER BY i.i_embedding <-> :embedding;
+  AND i.i_embedding <-> 'image_embedding' < 1.08
+ORDER BY i.i_embedding <-> 'image_embedding';

@@ -1,4 +1,3 @@
--- Replace :embedding with the query vector text literal, e.g. '[0.1, 0.2, ...]'
 SELECT dt.d_year,
        i.i_category_id,
        i.i_category
@@ -8,5 +7,5 @@ JOIN item_deep    AS i  ON ss.ss_item_sk = i.i_item_sk
 WHERE i.i_manager_id = 1
   AND dt.d_moy = 11
   AND dt.d_year = 1998
-  AND i.i_embedding <-> :embedding < 1.20
-ORDER BY i.i_embedding <-> :embedding;
+  AND i.i_embedding <-> 'image_embedding' < 1.20
+ORDER BY i.i_embedding <-> 'image_embedding';
