@@ -1,6 +1,6 @@
-# Exqutor Query Plans
-- [ECQO with Vector Indexes](#exqutor-with-vector-indexes-ecqo)
-- [Sampling without Indexes](#exqutor-without-vector-indexes-sampling)
+<hr/>
+
+# Exqutor TPC-H Query Plans
 
 ## Exqutor with Vector Indexes (ECQO)
 An optimization technique for VAQs with vector indexes, integrating ECQO into query planning by applying ANN searches only to vector tables. These results are reused at execution time without incurring redundant overhead.
@@ -66,4 +66,24 @@ a learning rate scheduler.
 ### TPC-H Q12 Query Plan
 <div align="center">
     <img src="figures/q12_sampling.jpg" alt="Q12 plan with Sampling" width="80%">
+</div>
+
+<br/>
+<hr/>
+
+# Exqutor TPC-DS Query Plans
+
+### TPC-DS Q7 Query Plan
+<div align="center">
+    <img src="figures/ds_q7.jpg" alt="TPC-DS Q7 plan" width="80%">
+</div>
+
+### TPC-DS Q12 Query Plan
+<div align="center">
+    <img src="figures/ds_q12.jpg" alt="TPC-DS Q12 plan" width="80%">
+</div>
+
+### TPC-DS Q19 Query Plan
+<div align="center">
+    <img src="figures/ds_q19.jpg" alt="TPC-DS Q19 plan with Sampling" width="80%">
 </div>
