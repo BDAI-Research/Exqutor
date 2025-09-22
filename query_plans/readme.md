@@ -1,5 +1,3 @@
-<hr/>
-
 # Exqutor TPC-H Query Plans
 
 ## Exqutor with Vector Indexes (ECQO)
