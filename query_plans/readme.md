@@ -83,5 +83,25 @@ a learning rate scheduler.
 
 ### TPC-DS Q19 Query Plan
 <div align="center">
-    <img src="figures/ds_q19.jpg" alt="TPC-DS Q19 plan with Sampling" width="80%">
+    <img src="figures/ds_q19.jpg" alt="TPC-DS Q19 plan" width="80%">
+</div>
+
+### TPC-DS Q20 Query Plan
+<div align="center">
+    <img src="figures/ds_q20.jpg" alt="TPC-DS Q20 plan" width="80%">
+</div>
+
+### TPC-DS Q42 Query Plan
+<div align="center">
+    <img src="figures/ds_q42.jpg" alt="TPC-DS Q42 plan" width="80%">
+</div>
+
+### TPC-DS Q72 Query Plan
+<div align="center">
+    <img src="figures/ds_q72.jpg" alt="TPC-DS Q72 plan" width="80%">
+</div>
+
+### TPC-DS Q98 Query Plan
+<div align="center">
+    <img src="figures/ds_q98.jpg" alt="TPC-DS Q98 plan" width="80%">
 </div>
