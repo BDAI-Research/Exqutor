@@ -14,3 +14,5 @@ cd "$dir"
 # Apply pgvector_Postgres.patch to ./postgres
 cd postgres || exit 1
 patch -N -p1 < ../patch/pgvector_Postgres.patch || exit 1
+
+
