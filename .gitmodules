@@ -15,12 +15,3 @@
 	path = PostgreSQL/pgvector/pgvector
 	url = https://github.com/pgvector/pgvector.git
 
-[submodule "Vector-augmented_SQL_analytics/dataset/third_party/big-ann-benchmarks"]
-	path = Vector-augmented_SQL_analytics/dataset/third_party/big-ann-benchmarks
-	url = https://github.com/harsha-simhadri/big-ann-benchmarks.git
-[submodule "Vector-augmented_SQL_analytics/dataset/third_party/tpch-kit"]
-	path = Vector-augmented_SQL_analytics/dataset/third_party/tpch-kit
-	url = https://github.com/gregrahn/tpch-kit.git
-[submodule "Vector-augmented_SQL_analytics/dataset/third_party/tpcds-kit"]
-	path = Vector-augmented_SQL_analytics/dataset/third_party/tpcds-kit
-	url = https://github.com/gregrahn/tpcds-kit.git
