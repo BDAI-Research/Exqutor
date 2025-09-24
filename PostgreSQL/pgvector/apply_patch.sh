@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Move to script directory (pgvector/)
-dir="$(cd "$(dirname "$0")" && pwd)"
+dir=$(dirname "$0")
 cd "$dir" || exit 1
 
 # Apply pgvector_Exqutor.patch to ./pgvector
