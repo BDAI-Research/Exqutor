@@ -1,21 +1,21 @@
-BEGIN;
+-- BEGIN;
 
-	CREATE TABLE PART (
+-- 	CREATE TABLE PART (
 
-		P_PARTKEY		SERIAL,
-		P_NAME			VARCHAR(55),
-		P_MFGR			CHAR(25),
-		P_BRAND			CHAR(10),
-		P_TYPE			VARCHAR(25),
-		P_SIZE			INTEGER,
-		P_CONTAINER		CHAR(10),
-		P_RETAILPRICE	DECIMAL,
-		P_COMMENT		VARCHAR(23)
-	);
+-- 		P_PARTKEY		SERIAL,
+-- 		P_NAME			VARCHAR(55),
+-- 		P_MFGR			CHAR(25),
+-- 		P_BRAND			CHAR(10),
+-- 		P_TYPE			VARCHAR(25),
+-- 		P_SIZE			INTEGER,
+-- 		P_CONTAINER		CHAR(10),
+-- 		P_RETAILPRICE	DECIMAL,
+-- 		P_COMMENT		VARCHAR(23)
+-- 	);
 
-	COPY part FROM '/path/to/part.csv' WITH (FORMAT csv, DELIMITER '|');
+-- 	COPY part FROM '../../../dataset/third_party/tpch-kit/dbgen/part.csv' WITH (FORMAT csv, DELIMITER '|');
 
-COMMIT;
+-- COMMIT;
 
 BEGIN;
 
@@ -25,7 +25,7 @@ BEGIN;
 		R_COMMENT	VARCHAR(152)
 	);
 
-	COPY region FROM '/path/to/region.csv' WITH (FORMAT csv, DELIMITER '|');
+	COPY region FROM '../../../dataset/third_party/tpch-kit/dbgen/region.csv' WITH (FORMAT csv, DELIMITER '|');
 
 COMMIT;
 
@@ -38,7 +38,7 @@ BEGIN;
 		N_COMMENT		VARCHAR(152)
 	);
 
-	COPY nation FROM '/path/to/nation.csv' WITH (FORMAT csv, DELIMITER '|');
+	COPY nation FROM '../../../dataset/third_party/tpch-kit/dbgen/nation.csv' WITH (FORMAT csv, DELIMITER '|');
 
 COMMIT;
 
@@ -54,7 +54,7 @@ BEGIN;
 		S_COMMENT		VARCHAR(101)
 	);
 
-	COPY supplier FROM '/path/to/supplier.csv' WITH (FORMAT csv, DELIMITER '|');
+	COPY supplier FROM '../../../dataset/third_party/tpch-kit/dbgen/supplier.csv' WITH (FORMAT csv, DELIMITER '|');
 
 COMMIT;
 
@@ -71,7 +71,7 @@ BEGIN;
 		C_COMMENT		VARCHAR(117)
 	);
 
-	COPY customer FROM '/path/to/customer.csv' WITH (FORMAT csv, DELIMITER '|');
+	COPY customer FROM '../../../dataset/third_party/tpch-kit/dbgen/customer.csv' WITH (FORMAT csv, DELIMITER '|');
 
 COMMIT;
 
@@ -85,7 +85,7 @@ COMMIT;
 -- 		PS_COMMENT		VARCHAR(199)
 -- 	);
 
--- 	COPY partsupp FROM '/path/to/partsupp.csv' WITH (FORMAT csv, DELIMITER '|');
+-- 	COPY partsupp FROM '../../../dataset/third_party/tpch-kit/dbgen/partsupp.csv' WITH (FORMAT csv, DELIMITER '|');
 
 -- COMMIT;
 
@@ -103,7 +103,7 @@ BEGIN;
 		O_COMMENT		VARCHAR(79)
 	);
 
-	COPY orders FROM '/path/to/orders.csv' WITH (FORMAT csv, DELIMITER '|');
+	COPY orders FROM '../../../dataset/third_party/tpch-kit/dbgen/orders.csv' WITH (FORMAT csv, DELIMITER '|');
 
 COMMIT;
 
@@ -128,6 +128,6 @@ BEGIN;
 		L_COMMENT		VARCHAR(44)
 	);
 
-	COPY lineitem FROM '/path/to/lineitem.csv' WITH (FORMAT csv, DELIMITER '|');
+	COPY lineitem FROM '../../../dataset/third_party/tpch-kit/dbgen/lineitem.csv' WITH (FORMAT csv, DELIMITER '|');
 
 COMMIT;

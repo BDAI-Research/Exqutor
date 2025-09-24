@@ -23,16 +23,14 @@ mkdir WIKI
 
 # Download the WIKI dataset parts if they don't exist
 cd WIKI
-for i in $(seq -w 00 09); do
-    if [ ! -f wiki_all.tar.$i ]; then
-        curl -O https://data.rapids.ai/raft/datasets/wiki_all/wiki_all.tar.$i
-    fi
-done
+if [ ! -f wiki_all_10M.tar ]; then
+    axel -n 10 https://data.rapids.ai/raft/datasets/wiki_all_10M/wiki_all_10M.tar
+fi
 
-# Extract the WIKI dataset if not already extracted
-if [ ! -d wiki_all_88M ]; then
-    mkdir wiki_all_88M
-    cat wiki_all.tar.* | tar -xf - -C wiki_all_88M/
+# Extract the WIKI 10M dataset if not already extracted
+if [ ! -d wiki_all_10M ]; then
+    mkdir wiki_all_10M
+    tar -xf wiki_all_10M.tar -C wiki_all_10M/
 fi
 
 
@@ -68,27 +66,30 @@ fi
 
 # add YFCC dataset
 # clone big-ann-benchmarks repo and create symbolic link to dataset/yfcc
-git submodule add https://github.com/harsha-simhadri/big-ann-benchmarks.git third_party/big-ann-benchmarks || true
-git submodule update --init --recursive
+# git submodule add https://github.com/harsha-simhadri/big-ann-benchmarks.git third_party/big-ann-benchmarks || true
+# git submodule update --init --recursive
 
-# install requirements and create dataset
-pip install -r third_party/big-ann-benchmarks/requirements.txt
+# # install requirements and create dataset
+# pip install -r third_party/big-ann-benchmarks/requirements.txt
 
-# download yfcc dataset
-cd third_party/big-ann-benchmarks
-python create_dataset.py --dataset yfcc-10M
-cd -
+# # download yfcc dataset
+# cd third_party/big-ann-benchmarks
+# python create_dataset.py --dataset yfcc-10M
 
-# create symbolic link
-mkdir -p yfcc
-ln -sfn $(pwd)/third_party/big-ann-benchmarks/data/yfcc $(pwd)/yfcc
+# # create symbolic link
+# mkdir -p yfcc
+# ln -sfn $(pwd)/third_party/big-ann-benchmarks/data/yfcc $(pwd)/yfcc
 
 cd "$dir"/third_party/tpch-kit/dbgen
 make
 
-./dbgen -f -s 100
+./dbgen -f -s 10
+
+for i in `ls *.tbl`; do sed 's/|$//' $i > ${i/tbl/csv}; echo $i; done;
 
 cd "$dir"/third_party/tpcds-kit/tools
 make
 
 ./dsdgen -SCALE 10 -DIR . >/dev/null 2>&1
+
+sed -i 's/|$//' *.dat >/dev/null 2>&1
