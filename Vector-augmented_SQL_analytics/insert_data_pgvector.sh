@@ -2,7 +2,7 @@
 
 dir=$(dirname "$0")
 
-cd "$dir"/tpc-h/codes
+cd "$dir"/tpc-h/codes/dss
 
 python insert_data_pgvector.py
 cd dss

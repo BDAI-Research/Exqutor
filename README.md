@@ -18,6 +18,13 @@
 
 ## Getting Started
 
+### Download datasets
+
+```sh
+cd Vector-augmented_SQL_analytics
+./download_dataset.sh
+```
+
 ### Installation
 
 #### pgvector + Exqutor
@@ -32,9 +39,17 @@ cd PostgreSQL/pgvector
 
 2. Setup Vector-augmented_SQL_analytics
 
-Update the CSV path in `tpch-load.sql`.
+```sh
+cd Vector-augmented_SQL_analytics
+./insert_data_pgvector.sh
+```
 
-Insert data using `tpch-load.sql` and `insert_partsupp_deep_PostgreSQL.py`.
+3. Execute queries
+
+```sh
+cd Vector-augmented_SQL_analytics/tpc-h/codes
+python query_pgvector.py
+```
 
 #### VBASE + Exqutor
 

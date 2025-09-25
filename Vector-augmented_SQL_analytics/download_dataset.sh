@@ -65,10 +65,6 @@ fi
 
 
 # add YFCC dataset
-# clone big-ann-benchmarks repo and create symbolic link to dataset/yfcc
-# git submodule add https://github.com/harsha-simhadri/big-ann-benchmarks.git third_party/big-ann-benchmarks || true
-# git submodule update --init --recursive
-
 # # install requirements and create dataset
 # pip install -r third_party/big-ann-benchmarks/requirements.txt
 

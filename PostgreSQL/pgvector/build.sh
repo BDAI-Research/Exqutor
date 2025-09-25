@@ -28,6 +28,3 @@ cd "$psql/bin"
 ./createdb tpch
 
 ./psql tpch -c "CREATE EXTENSION vector;"
-
-./createdb tpcds
-./psql tpcds -c "CREATE EXTENSION vector;"
