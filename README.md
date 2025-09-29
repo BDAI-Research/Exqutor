@@ -39,8 +39,10 @@ cd PostgreSQL/pgvector
 
 2. Setup Vector-augmented_SQL_analytics
 
+tpc-h
+
 ```sh
-cd Vector-augmented_SQL_analytics
+cd Vector-augmented_SQL_analytics/tpc-h
 ./insert_data_pgvector.sh
 ```
 

@@ -12,7 +12,7 @@ deep_bin_path = '../../dataset/DEEP/base.1B.fbin'
 wiki_bin_path = '../../dataset/WIKI/base.10M.fbin'
 
 # DB connection
-conn = psycopg.connect()
+conn = psycopg.connect(dbname='tpch')
 pgvector.psycopg.register_vector(conn)
 conn.autocommit = True
 

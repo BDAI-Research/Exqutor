@@ -89,3 +89,4 @@ make
 ./dsdgen -SCALE 10 -DIR . >/dev/null 2>&1
 
 sed -i 's/|$//' *.dat >/dev/null 2>&1
+

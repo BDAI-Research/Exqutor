@@ -14,7 +14,7 @@ install()
 import psycopg2
 from psycopg2 import extras
 
-conn = psycopg2.connect(host='/tmp', port=5410)
+conn = psycopg2.connect(dbname='tpch')
 cur = conn.cursor()
 conn.autocommit = True
 
