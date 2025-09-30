@@ -40,3 +40,14 @@ cd ..
 cp ./build/vectordb.so ${PGBASE}/lib/postgresql/vectordb.so
 cp ./build/vectordb.control ${PGBASE}/share/postgresql/extension/vectordb.control
 cp ./sql/vectordb.sql ${PGBASE}/share/postgresql/extension/vectordb--0.1.0.sql
+
+cd "$dir"/pg_hint_plan
+export PG_CONFIG="$psql/bin/pg_config"
+make
+make install
+
+cd "$psql/bin"
+./pg_ctl -D "../data" -l ../log.log start
+./createdb tpch
+
+./psql tpch -c "CREATE EXTENSION vectordb;"
