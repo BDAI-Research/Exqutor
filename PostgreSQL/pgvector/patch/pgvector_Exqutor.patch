@@ -22,42 +22,10 @@ new mode 100755
 diff --git a/Makefile b/Makefile
 old mode 100644
 new mode 100755
-index e070a06..1a35b0a
+index 4379562..2b4ef13
 --- a/Makefile
 +++ b/Makefile
-@@ -31,22 +31,6 @@ endif
- # - Clang (could use pragma instead) - https://llvm.org/docs/Vectorizers.html
- PG_CFLAGS += $(OPTFLAGS) -ftree-vectorize -fassociative-math -fno-signed-zeros -fno-trapping-math
- 
--# Python 헤더 및 라이브러리 경로를 가져오기
--PYTHON_INCLUDE := $(shell python3-config --includes)
--PYTHON_LDFLAGS := $(shell python3-config --ldflags)
--
--# CFLAGS 및 LDFLAGS 설정
--PG_CPPFLAGS += $(PYTHON_INCLUDE)
--# SHLIB_LINK = $(PYTHON_LDFLAGS)
--PG_LDFLAGS += $(PYTHON_LDFLAGS) -lpython3.8
--
--NUMPY_INCLUDE := $(shell python3 -c "import numpy; print(numpy.get_include())")
--
--PG_CPPFLAGS += -I$(NUMPY_INCLUDE)
--
--# override CPPFLAGS := $(python_cflags) $(CPPFLAGS) -I./src/include
--# override SHLIB_LINK := $(python_ldflags) $(CPPFLAGS) $(SHLIB_LINK)
--
- # Debug GCC auto-vectorization
- # PG_CFLAGS += -fopt-info-vec
- 
-@@ -60,7 +44,7 @@ sql/$(EXTENSION)--$(EXTVERSION).sql: sql/$(EXTENSION).sql
- 
- EXTRA_CLEAN = sql/$(EXTENSION)--$(EXTVERSION).sql
- 
--PG_CONFIG ?= /mnt/nvme3/pg/ours/postgres_9-26/bin/pg_config
-+PG_CONFIG ?= /home/wns41559/pg/ours/our_postgres_final/bin/pg_config
- PGXS := $(shell $(PG_CONFIG) --pgxs)
- include $(PGXS)
- 
-@@ -93,4 +77,4 @@ docker:
+@@ -77,4 +77,4 @@ docker:
  .PHONY: docker-release
  
  docker-release:
@@ -356,57 +324,68 @@ index d3ba911..a9b7084 100644
 diff --git a/src/vector.c b/src/vector.c
 old mode 100644
 new mode 100755
-index 7cb7f90..aa85717
+index 4ba7ce1..aa85717
 --- a/src/vector.c
 +++ b/src/vector.c
-@@ -2,11 +2,7 @@
+@@ -2,6 +2,8 @@
  
  #include <math.h>
  
--#ifdef PG_MODULE_MAGIC
--PG_MODULE_MAGIC;
--#endif
- 
--#include <Python.h>
- 
++
++
  #include "bitutils.h"
  #include "bitvec.h"
-@@ -47,8 +43,10 @@ PG_MODULE_MAGIC;
- #include "catalog/pg_class.h"
- #include "catalog/pg_am.h"
- #include "catalog/namespace.h"
--#include "numpy/arrayobject.h"
- #include "executor/spi.h"
+ #include "catalog/pg_type.h"
+@@ -22,6 +24,30 @@
+ #include "utils/numeric.h"
+ #include "vector.h"
+ 
++#include "optimizer/planner.h"
++#include "executor/executor.h"
++#include "nodes/plannodes.h"
++#include "commands/defrem.h"
++#include "access/relation.h"
++#include "optimizer/paths.h"
++#include "catalog/index.h"
++#include "nodes/makefuncs.h"
++#include "tcop/tcopprot.h"
++#include "parser/parser.h"
++#include "optimizer/cost.h"
++#include "optimizer/optimizer.h"
++#include "utils/ruleutils.h"
++#include "parser/parsetree.h"
++
++#include "utils/syscache.h"
++#include "catalog/pg_class.h"
++#include "catalog/pg_am.h"
++#include "catalog/namespace.h"
++#include "executor/spi.h"
 +#include <time.h>
 +#include "utils/ruleutils.h"
 +
- 
++
  #if PG_VERSION_NUM >= 160000
  #include "varatt.h"
-@@ -71,56 +69,87 @@ PG_MODULE_MAGIC;
- PG_MODULE_MAGIC;
- Datum vector_out(PG_FUNCTION_ARGS);
+ #endif
+@@ -41,6 +67,89 @@
+ #endif
  
--static planner_hook_type prev_planner = NULL;
--static ExecutorRun_hook_type prev_ExecutorRun = NULL;
--static ExecutorEnd_hook_type prev_ExecutorEnd = NULL;
--static void count_total_tables(Query *query, int *table_count);
--static void count_tables_in_quals(Node *quals, int *table_count);
+ PG_MODULE_MAGIC;
++Datum vector_out(PG_FUNCTION_ARGS);
++
 +extern void (*set_baserel_rows_estimate_hook)(PlannerInfo *root, RelOptInfo *rel);
 +
 +/* Planner and Execution */
- static PlannedStmt *pgvector_plan_planner(Query *parse, const char *query_string, int cursorOptions, ParamListInfo boundParams);
- static void pgvector_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction, uint64 count, bool execute_once);
- static void pgvector_ExecutorEnd(QueryDesc *queryDesc);
--static ParamListInfo original_boundParams = NULL;
--static bool check_for_vector_index_scan(QueryDesc *queryDesc, Node *node);
++static PlannedStmt *pgvector_plan_planner(Query *parse, const char *query_string, int cursorOptions, ParamListInfo boundParams);
++static void pgvector_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction, uint64 count, bool execute_once);
++static void pgvector_ExecutorEnd(QueryDesc *queryDesc);
 +static void pgvector_set_baserel_rows_estimate_hook(PlannerInfo *root, RelOptInfo *rel);
 +
 +/* Vector Index and Search */
 +static bool check_for_vector_search(QueryDesc *queryDesc, Node *node);
 +static bool check_vector_range_query(PlannerInfo *root, RelOptInfo *rel);
 +static bool has_vector_column(PlannerInfo *root, RelOptInfo *rel);
- static PlannedStmt *CreatePlannedStmtForVectorSearchNodes(QueryDesc *queryDesc, List *hnswNodes);
++static PlannedStmt *CreatePlannedStmtForVectorSearchNodes(QueryDesc *queryDesc, List *hnswNodes);
 +
 +/* Cardinality Estimation and Sampling */
 +static void append_other_filters_to_query(StringInfo query, List *other_filters);
@@ -430,50 +409,18 @@ index 7cb7f90..aa85717
 +static ExecutorRun_hook_type prev_ExecutorRun = NULL;
 +static ExecutorEnd_hook_type prev_ExecutorEnd = NULL;
 +
- static Query *original_query = NULL;
- static char *original_query_string = NULL;
- static int original_cursorOptions = 0;
--// static bool after_replan = false;
--static bool first_run = true;
--static bool need_running_vector_ANN_search = false;
--static bool need_ordering = false;
--static bool on_sampling = false;
++static Query *original_query = NULL;
++static char *original_query_string = NULL;
++static int original_cursorOptions = 0;
 +static ParamListInfo original_boundParams = NULL;
 +static bool is_first_execution = true;
 +static bool need_vector_cardinality_estimation = false;
 +static bool ordering_needed = false;
 +static bool is_sampling_active = false;
- 
--// static QueryDesc *newQueryDesc;
- static PlannedStmt *originalPlannedStmt;
- static PlannedStmt *original_es_plannedstmt;
- static PlannedStmt *newPlannedStmt;
--extern void (*set_baserel_rows_estimate_hook)(PlannerInfo *root, RelOptInfo *rel);
--static void pgvector_set_baserel_rows_estimate_hook(PlannerInfo *root, RelOptInfo *rel);
--static bool check_vector_range_query(PlannerInfo *root, RelOptInfo *rel);
--static bool check_vector_index_exists(PlannerInfo *root, RelOptInfo *rel);
--static void load_selnet_model(void);
--static float run_selnet_prediction(char *original_data, float range_threshold);
--static double sampled_row_count();
--static bool has_vector_column(PlannerInfo *root, RelOptInfo *rel);
--static PyObject* string_to_numpy_array(const char *original_data, int dim);
--
--// static bool is_vector_type(Oid consttype);
--List *vectorSearchResults;
--Oid hnswOid = 0;
--Oid ivfOid = 0;
--Oid vectorOid = 0;
--
--PyObject *pySelnetModel = NULL;
--char *vector_table_name = NULL;
--char *vector_column_name = NULL;
--char *vector_str = NULL;
--float range_distance_value = 0.0;
--bool vector_range_query_exists = false;
--bool vector_index_exists = false;
--// bool AQO = false;
--double sample_size = 0.1;
--bool checked_model = false;
++
++static PlannedStmt *originalPlannedStmt;
++static PlannedStmt *original_es_plannedstmt;
++static PlannedStmt *newPlannedStmt;
 +
 +
 +static List *vector_cardinality_results;
@@ -510,7 +457,7 @@ index 7cb7f90..aa85717
  
  /*
   * Initialize index options and variables
-@@ -129,10 +158,17 @@ PGDLLEXPORT void _PG_init(void);
+@@ -49,12 +158,1061 @@ PGDLLEXPORT void _PG_init(void);
  void
  _PG_init(void)
  {
@@ -525,25 +472,23 @@ index 7cb7f90..aa85717
 +    ctl.entrysize = sizeof(SearchResultEntry);
 +    search_result_map = hash_create("Search Result Map", 128, &ctl, HASH_ELEM | HASH_BLOBS);
 +    
- 	prev_planner = planner_hook;
- 	planner_hook = pgvector_plan_planner;
- 	prev_ExecutorRun = ExecutorRun_hook;
-@@ -142,389 +178,544 @@ _PG_init(void)
- 	set_baserel_rows_estimate_hook = pgvector_set_baserel_rows_estimate_hook;
- 	DefineCustomRealVariable("vector.sample_size",
-                              "Sets the sample size percentage for TABLESAMPLE.",
--                             "Valid range is 0.0001..100.",
++	prev_planner = planner_hook;
++	planner_hook = pgvector_plan_planner;
++	prev_ExecutorRun = ExecutorRun_hook;
++	ExecutorRun_hook = pgvector_ExecutorRun;
++	prev_ExecutorEnd = ExecutorEnd_hook;
++	ExecutorEnd_hook = pgvector_ExecutorEnd;
++	set_baserel_rows_estimate_hook = pgvector_set_baserel_rows_estimate_hook;
++	DefineCustomRealVariable("vector.sample_size",
++                             "Sets the sample size percentage for TABLESAMPLE.",
 +                             "Valid range is 0..table_size.",
-                              &sample_size,
--                             0.1,    /* 기본값 */
--                             0.0001, /* 최소값 */
--                             100.0,  /* 최대값 */
++                             &sample_size,
 +                             385,   
 +                             1, 
 +                             DBL_MAX,  
-                              PGC_USERSET,
-                              0,
-                              NULL, NULL, NULL);
++                             PGC_USERSET,
++                             0,
++                             NULL, NULL, NULL);
 +	DefineCustomIntVariable(
 +		"vector.sample_update_cycle",
 +		"Sets the update cycle for vector sampling.",
@@ -568,24 +513,12 @@ index 7cb7f90..aa85717
 +        NULL,  
 +        NULL   
 +    );
- }
- 
--static void load_selnet_model(void)
++}
++
 +
 +static PlannedStmt *
 +pgvector_plan_planner(Query *parse, const char *query_string, int cursorOptions, ParamListInfo boundParams)
- {
--	// Python 인터프리터 초기화
--	if (!Py_IsInitialized())
--		Py_Initialize();
--	import_array();
--	//elog(INFO, "Python interpreter initialized");
--	// Python 경로 설정
--	PyRun_SimpleString("import sys");
--	PyRun_SimpleString("sys.path.append('/home/wns41559/selnet/sift_training_test/model')");
--	// Python 환경 설정
--	PyRun_SimpleString("import os");
--	PyRun_SimpleString("os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'");  // INFO 로그 숨김
++{
 +	PlannedStmt *result;
 +	int table_count;
 +	if (hnswOid == 0)
@@ -597,12 +530,7 @@ index 7cb7f90..aa85717
 +	{
 +		vectorOid = TypenameGetTypid("vector");
 +	}
- 
--	// 필요한 Python 모듈 임포트
--	PyObject *pName, *pModule, *pDict, *pClass;
--	PyObject *test_original_X;
--	pName = PyUnicode_DecodeFSDefault("selnet"); // 'selnet' 모듈
--	pModule = PyImport_Import(pName);
++
 +	if (Qerrors_array == NULL) 
 +	{
 +		Qerrors_array = palloc(sizeof(Datum) * sample_update_cycle);
@@ -611,8 +539,7 @@ index 7cb7f90..aa85717
 +			Qerrors_array[i] = Float8GetDatum(0.0);
 +		}
 +	}
- 
--	if (pModule != NULL)
++
 +	table_count = 0;
 +    count_total_tables(parse, &table_count);
 +	// elog(LOG, "table count %d", table_count);
@@ -632,17 +559,13 @@ index 7cb7f90..aa85717
 +		result = prev_planner(parse, query_string, cursorOptions, boundParams);
 +	}
 +	else
- 	{
--		// selnet에서 SelNet 클래스를 가져옴
--		pDict = PyModule_GetDict(pModule);
--		pClass = PyDict_GetItemString(pDict, "SelNet");
++	{
 +		result = standard_planner(parse, query_string, cursorOptions, boundParams);
 +	}
 +	// elog(LOG, "planner finished");
 +	return result;
 +}
- 
--		if (PyCallable_Check(pClass))
++
 +
 +static void
 +pgvector_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction,
@@ -661,50 +584,16 @@ index 7cb7f90..aa85717
 +		// find vector search nodes and estimate cardinality
 +		bool other_node_exists = check_for_vector_search(queryDesc, (Node *) planTree);
 +		if (vector_cardinality_results)
- 		{
--			// SelNet 클래스의 인스턴스를 생성
--			PyObject *pArgs, *pValue, *pResult;
--			pArgs = PyTuple_New(19); // 필요한 인자 개수에 맞게 튜플 생성
--
--			// 파라미터 설정 (C에서 Python으로 인자를 전달)
--			PyTuple_SetItem(pArgs, 0, Py_BuildValue("[i,i,i,i]", 1024, 512, 512, 256));																			  // hidden_units
--			PyTuple_SetItem(pArgs, 1, Py_BuildValue("[i,i,i]", 512, 256, 256));																					  // vae_hidden_units
--			PyTuple_SetItem(pArgs, 2, Py_BuildValue("i", 512));																									  // batch_size
--			PyTuple_SetItem(pArgs, 3, Py_BuildValue("i", 1500));																								  // epochs
--			PyTuple_SetItem(pArgs, 4, Py_BuildValue("i", 100));																									  // epochs_vae
--			PyTuple_SetItem(pArgs, 5, Py_BuildValue("f", 0.00002));																								  // learning_rate
--			PyTuple_SetItem(pArgs, 6, Py_BuildValue("O", Py_False));																							  // log_option
--			PyTuple_SetItem(pArgs, 7, Py_BuildValue("i", 5));																									  // tau_embedding_size
--			PyTuple_SetItem(pArgs, 8, Py_BuildValue("i", 128));																									  // original_x_dim
--			PyTuple_SetItem(pArgs, 9, Py_BuildValue("i", 80));																									  // dimreduce_x_dim
--			PyTuple_SetItem(pArgs, 10, Py_BuildValue("s", "/home/wns41559/selnet/sift_training_test/run/one/test_sift_log/test_predictions.npy"));				  // test_data_predictions_labels_file
--			PyTuple_SetItem(pArgs, 11, Py_BuildValue("s", "/home/wns41559/selnet/sift_training_test/run/one/test_sift_log/valid_predictions_labels_one_epoch_")); // valid_data_predictions_labels_file
--			PyTuple_SetItem(pArgs, 12, Py_BuildValue("s", "sift_log_regressor_one_"));																			  // regression_name
--			PyTuple_SetItem(pArgs, 13, Py_BuildValue("s", "/home/wns41559/selnet/sift_training_test/run/one/model_dir_sift_log/regressor_one-1499"));			  // regression_model_dir
--			PyTuple_SetItem(pArgs, 14, Py_BuildValue("i", 80));																									  // unit_len
--			PyTuple_SetItem(pArgs, 15, Py_BuildValue("f", 1.0));																								  // max_tau
--			PyTuple_SetItem(pArgs, 16, Py_BuildValue("i", 50));																									  // tau_part_num
--			PyTuple_SetItem(pArgs, 17, Py_BuildValue("s", "l2"));																								  // partition_option
--			PyTuple_SetItem(pArgs, 18, Py_BuildValue("s", "huber_log"));																						  // loss_option
--
--			// SelNet 인스턴스 생성
--			pySelnetModel = PyObject_CallObject(pClass, pArgs);
--			Py_DECREF(pArgs);
--
--			if (pySelnetModel == NULL)
++		{
 +			// replan with estimated cardinality
 +			if (prev_planner)
 +			{
 +				newPlannedStmt = prev_planner(original_query, original_query_string, original_cursorOptions, original_boundParams);
 +			}
 +			else
- 			{
--				// PyErr_Print();
--				// ereport(ERROR, (errmsg("SelNet 인스턴스 생성 실패")));
--				elog(INFO, "SelNet 인스턴스 생성 실패");
--				return;
++			{
 +				newPlannedStmt = standard_planner(original_query, original_query_string, original_cursorOptions, original_boundParams);
- 			}
++			}
 +			reuse_computation = false;
 +			originalPlannedStmt = queryDesc->plannedstmt;
 +			original_es_plannedstmt = queryDesc->estate->es_plannedstmt;
@@ -724,58 +613,27 @@ index 7cb7f90..aa85717
 +			standard_ExecutorRun(queryDesc, direction, count, execute_once);
 +
 +			// elog(LOG, "Executed with optimal plan");
- 		}
- 		else
- 		{
++		}
++		else
++		{
 +			if (prev_ExecutorRun)
 +				prev_ExecutorRun(queryDesc, direction, count, execute_once);
 +			else
 +				standard_ExecutorRun(queryDesc, direction, count, execute_once);
- 			return;
- 		}
--
--		Py_DECREF(pModule);
--		Py_DECREF(pDict);
--		Py_DECREF(pClass);
- 	}
- 	else
- 	{
--		// PyErr_Print();
--		// ereport(ERROR, (errmsg("selnet 모듈을 불러올 수 없습니다.")));
--		elog(INFO, "selnet 모듈을 불러올 수 없습니다.");
++			return;
++		}
++	}
++	else
++	{
 +		if (prev_ExecutorRun)
 +			prev_ExecutorRun(queryDesc, direction, count, execute_once);
 +		else
 +			standard_ExecutorRun(queryDesc, direction, count, execute_once);
 +		return;
- 	}
--	Py_DECREF(pName);
- }
- 
--static PyObject* string_to_numpy_array(const char *original_data, int dim) 
--{
--    // 1. ast 모듈을 사용하여 문자열을 Python 리스트로 변환
--    PyObject *ast_module = PyImport_ImportModule("ast");
--    if (ast_module == NULL) {
--        // PyErr_Print();
--        //elog(ERROR, "Failed to import ast module");
--        return NULL;
--    }
--
--    PyObject *literal_eval = PyObject_GetAttrString(ast_module, "literal_eval");
--    if (literal_eval == NULL || !PyCallable_Check(literal_eval)) {
--        // PyErr_Print();
--        //elog(ERROR, "Failed to retrieve ast.literal_eval");
--        Py_DECREF(ast_module);
--        return NULL;
--    }
--
--    PyObject *args = PyTuple_Pack(1, PyUnicode_FromString(original_data));
--    PyObject *list_obj = PyObject_CallObject(literal_eval, args);
- 
--    Py_DECREF(args);
--    Py_DECREF(literal_eval);
--    Py_DECREF(ast_module);
++	}
++}
++
++
 +static void 
 +pgvector_ExecutorEnd(QueryDesc *queryDesc)
 +{
@@ -801,31 +659,7 @@ index 7cb7f90..aa85717
 +				v_grad = momentum * v_grad + learning_rate * grad;
 +				learning_rate = learning_rate * lr_lambda;
 +				sample_size = sample_size + v_grad;
- 
--    if (list_obj == NULL) {
--        // PyErr_Print();
--        //elog(ERROR, "Failed to parse string to list");
--        return NULL;
--    }
--	npy_intp dims[2] = {1, dim};
--    // 2. 리스트를 NumPy 배열로 변환
--    PyObject *numpy_array = NULL;
--    if (PyList_Check(list_obj)) {
--        npy_intp total_size = dims[0] * dims[1];  // 예: (1, 128)의 경우 128
--        float *data = (float *)malloc(total_size * sizeof(float));
--
--        // 리스트 요소를 float 배열로 변환
--        for (int i = 0; i < total_size; i++) {
--            PyObject *item = PyList_GetItem(list_obj, i);
--            if (item == NULL) {
--                // PyErr_Print();
--                //elog(ERROR, "Error accessing list item");
--                Py_DECREF(list_obj);
--                free(data);
--                return NULL;
--            }
--            data[i] = (float)PyFloat_AsDouble(item);  // float 변환
--        }
++
 +			}
 +			Qerrors_count++;
 +			if (Qerrors_count == sample_update_cycle)
@@ -846,28 +680,15 @@ index 7cb7f90..aa85717
 +		reuse_computation = true;
 +		// elog(LOG, "Finished executing query with optimal plan");
 +	}
- 
--        // NumPy 배열 생성
--        numpy_array = PyArray_SimpleNewFromData(2, dims, NPY_FLOAT32, data);
--        if (numpy_array == NULL) {
--            // PyErr_Print();
--            //elog(ERROR, "NumPy 배열 생성 실패");
--            free(data);
--        }
--        else {
--            //elog(INFO, "NumPy 배열이 성공적으로 생성되었습니다.");
--        }
++
 +	if (prev_ExecutorEnd)
 +		prev_ExecutorEnd(queryDesc);
 +	else
 +		standard_ExecutorEnd(queryDesc);
 +	// elog(LOG, "Finished executing query");
 +}
- 
--        // PyArray_SimpleNewFromData의 메모리는 Python에서 관리되므로 free하지 않습니다.
--    }
- 
--    Py_DECREF(list_obj);
++
++
 +static void
 +pgvector_set_baserel_rows_estimate_hook(PlannerInfo *root, RelOptInfo *rel)
 +{
@@ -906,48 +727,26 @@ index 7cb7f90..aa85717
 +			
 +		}
 +	}
- 
--    return numpy_array;  // 성공적으로 생성된 NumPy 배열 반환
++
 +	set_baserel_rows_estimate_standard(root, rel);
- }
- 
--static float run_selnet_prediction(char *original_data, float range_threshold)
++}
++
 +static void
 +collect_hnsw_nodes(Node *node, List **out_nodes, PlannedStmt *rootPlannedStmt)
- {
--	float result;
--    if (pySelnetModel != NULL)
++{
 +    if (node == NULL)
 +        return;
 +
 +    /* Collect HNSW IndexScan / IndexOnlyScan */
 +    if (IsA(node, IndexScan) || IsA(node, IndexOnlyScan))
-     {
--        ereport(INFO, (errmsg("SelNet 모델이 성공적으로 생성되었습니다.")));
--        // char *original_data = "[3,9,17,78,83,15,10,8,101,109,21,8,3,2,9,64,39,31,18,80,55,10,2,12,7,7,26,58,32,6,4,3,14,2,13,28,37,19,47,59,109,22,2,6,18,15,20,109,30,8,11,44,109,54,19,32,17,21,15,22,12,28,101,35,66,11,9,30,68,35,30,75,106,103,26,50,76,20,8,13,51,41,63,109,40,2,3,15,36,49,21,13,12,9,36,37,52,37,24,34,19,3,13,23,21,8,3,20,68,56,79,60,99,36,7,28,78,41,7,21,74,26,3,15,34,15,12,27]";
--
--		PyObject *test_original_X = string_to_numpy_array(original_data, 128);
--
--        if (test_original_X == NULL) {
--            // PyErr_Print();
--            fprintf(stderr, "Failed to convert string to Python list\n");
--        } else {
--            //elog(INFO, "test_original_X is not NULL");
--			// float range_threshold = 300.0;
--            // test_tau 변수를 생성
--            npy_intp dims[2] = {1, 50};  // 2차원 배열, 크기 (1, 50)
--            int data[50];
--            for (int i = 0; i < 50; i++) {
--                data[i] = range_threshold;  // 모든 요소를 300으로 설정
--            }
++    {
 +        IndexScan *is = (IndexScan *) node;
 +        Oid indexid = is->indexid;
 +
 +        Relation indexRel = relation_open(indexid, NoLock);
 +        Oid indexAmOid = indexRel->rd_rel->relam;
 +        relation_close(indexRel, NoLock);
- 
--            PyObject *test_tau = PyArray_SimpleNewFromData(2, dims, NPY_INT, data);
++
 +        if (indexAmOid == hnswOid)
 +        {
 +            Plan *plan = (Plan *) node;
@@ -958,12 +757,7 @@ index 7cb7f90..aa85717
 +            }
 +        }
 +    }
- 
--            if (test_tau == NULL) {
--                // PyErr_Print();
--                // ereport(ERROR, (errmsg("NumPy 배열 생성 실패")));
--            } else {
--                //elog(INFO, "test_tau is not NULL");
++
 +    /* Recurse into SubqueryScan's subplan */
 +    if (IsA(node, SubqueryScan))
 +    {
@@ -971,10 +765,7 @@ index 7cb7f90..aa85717
 +        collect_hnsw_nodes((Node *) ss->subplan, out_nodes, rootPlannedStmt);
 +        return; // Stop further processing for this branch
 +    }
- 
--                if (PyObject_HasAttrString(pySelnetModel, "predict_vae_dnn")) {
--                    //elog(INFO, "predict_vae_dnn 메서드를 찾았습니다.");
--                    PyObject *pResult = PyObject_CallMethod(pySelnetModel, "predict_vae_dnn", "OO", test_original_X, test_tau);
++
 +    /* Treat node as a Plan and recurse into left/right */
 +    {
 +        Plan *plan = (Plan *) node;
@@ -983,28 +774,7 @@ index 7cb7f90..aa85717
 +            /* Left / Right subtree */
 +            collect_hnsw_nodes((Node *) plan->lefttree,  out_nodes, rootPlannedStmt);
 +            collect_hnsw_nodes((Node *) plan->righttree, out_nodes, rootPlannedStmt);
- 
--                    if (pResult == NULL) {
--                        if (PyErr_Occurred()) {
--                            // PyErr_Print(); // Python 예외 출력
--                        }
--                        //elog(ERROR, "predict_vae_dnn 호출 실패");
--                    } else {
--                        //elog(INFO, "predict_vae_dnn 호출 성공");
--
--                        if (PyArray_Check(pResult)) {
--                            PyArrayObject *array = (PyArrayObject *)pResult;
--                            float *data = (float *)PyArray_DATA(array);
--                            npy_intp size = PyArray_SIZE(array); // 배열 크기 확인
--
--                            if (size > 0) {
--                                //elog(INFO, "predict_vae_dnn 결과 배열의 첫 번째 요소: %f", data[0]);
--								result = data[0];
--                            } else {
--                                //elog(WARNING, "predict_vae_dnn 결과 배열이 비어 있습니다.");
--                            }
--                        } else {
--                            //elog(WARNING, "predict_vae_dnn 결과가 NumPy 배열이 아닙니다.");
++
 +            /* Also walk initPlan SubPlans and resolve their plan via plan_id */
 +            if (plan->initPlan && rootPlannedStmt && rootPlannedStmt->subplans)
 +            {
@@ -1020,29 +790,15 @@ index 7cb7f90..aa85717
 +                            Plan *spplan = (Plan *) list_nth(rootPlannedStmt->subplans, idx);
 +                            if (spplan)
 +                                collect_hnsw_nodes((Node *) spplan, out_nodes, rootPlannedStmt);
-                         }
--
--                        Py_DECREF(pResult);
-                     }
--                } else {
--                    //elog(ERROR, "predict_vae_dnn 메서드가 존재하지 않습니다.");
-                 }
--
--                Py_DECREF(test_original_X);
--                Py_DECREF(test_tau);
-             }
-         }
--
-     }
--	return result;
- }
- 
--static void count_total_tables(Query *query, int *table_count)
--{
--    ListCell *lc;
- 
--    // 기본 rtable 리스트 순회
--    foreach(lc, query->rtable)
++                        }
++                    }
++                }
++            }
++        }
++    }
++}
++
++
 +static bool
 +check_for_vector_search(QueryDesc *queryDesc, Node *node)
 +{
@@ -1056,20 +812,16 @@ index 7cb7f90..aa85717
 +	Plan *plan = (Plan *)node;
 +	
 +    if (IsA(node, IndexScan) || IsA(node, IndexOnlyScan))
-     {
--        RangeTblEntry *rte = (RangeTblEntry *) lfirst(lc);
++    {
 +        IndexScan *indexScan = (IndexScan *) node;
 +        Oid indexid = indexScan->indexid;
- 
--        // 실제 테이블을 카운트
--        if (rte->rtekind == RTE_RELATION)
++
 +        Relation indexRel = relation_open(indexid, NoLock);
 +        Oid indexAmOid = indexRel->rd_rel->relam;
 +        relation_close(indexRel, NoLock);
 +        // check if the index is HNSW index
 +        if (indexAmOid == hnswOid)
-         {
--            (*table_count)++;
++        {
 +            Oid tableoid = IndexGetRelation(indexid, true);
 +            reuse_computation = true;
 +            List *hnswNodes = NIL;
@@ -1108,15 +860,12 @@ index 7cb7f90..aa85717
 +            FreeQueryDesc(hnswQueryDesc);
 +
 +            return other_node_exists;
-         }
--        // 서브쿼리 처리
--        else if (rte->rtekind == RTE_SUBQUERY)
++        }
 +        else
-         {
--            count_total_tables(rte->subquery, table_count);
++        {
 +            other_node_exists = true;
-         }
-     }
++        }
++    }
 +	else if (IsA(node, SubqueryScan))
 +	{
 +		SubqueryScan *subqueryScanNode = (SubqueryScan *) node;
@@ -1127,19 +876,7 @@ index 7cb7f90..aa85717
 +	else if (IsA(node, SeqScan))
 +	{
 +		SeqScan *seqScanNode = (SeqScan *) node;
- 
--    // Where 절에서 서브쿼리 확인
--    if (query->jointree && query->jointree->quals)
--    {
--        count_tables_in_quals(query->jointree->quals, table_count);
--    }
--}
--
--// Where 절의 quals 부분을 처리하는 함수 추가
--static void count_tables_in_quals(Node *quals, int *table_count)
--{
--    if (quals == NULL)
--        return;
++
 +		RangeTblEntry *rte = rt_fetch(seqScanNode->scan.scanrelid, queryDesc->estate->es_range_table);
 +		
 +		Oid tableoid = rte->relid;
@@ -1174,69 +911,13 @@ index 7cb7f90..aa85717
 +			other_node_exists = true;
 +		}
 +		relation_close(seqScanRel, AccessShareLock);
- 
--    if (IsA(quals, SubLink)) // 서브쿼리가 있는 경우
--    {
--        SubLink *sublink = (SubLink *) quals;
--        Query *subquery = (Query *) sublink->subselect;
--        count_total_tables(subquery, table_count); // 서브쿼리 테이블 카운트
--    }
--    else if (IsA(quals, BoolExpr)) // 복합 논리 표현식
--    {
--        BoolExpr *bool_expr = (BoolExpr *) quals;
--        ListCell *lc;
--
--        foreach(lc, bool_expr->args)
--        {
--            Node *arg = (Node *) lfirst(lc);
--            count_tables_in_quals(arg, table_count);
--        }
--    }
--    // 다른 표현식에 대해서도 재귀적으로 탐색 가능
--}
--
--static PlannedStmt *
--pgvector_plan_planner(Query *parse, const char *query_string, int cursorOptions, ParamListInfo boundParams)
--{
--	PlannedStmt *result;
--	// save original query and query string
--	//elog(INFO, "planner_hook called");
--	if (hnswOid == 0)
--	{
--		hnswOid = get_index_am_oid("hnsw", true);
--	}
--	if (ivfOid == 0)
--	{
--		ivfOid = get_index_am_oid("ivfflat", true);
--	}
--	if (vectorOid == 0)
--	{
--		vectorOid = TypenameGetTypid("vector");
--	}
--	// elog(INFO, "hnswOid: %d, ivfOid: %d, vectorOid: %d", hnswOid, ivfOid, vectorOid);
--	int table_count = 0;
--    count_total_tables(parse, &table_count);
--	if (table_count > 2)
--	{
--		//elog(INFO, "table count: %d", table_count);
--		need_ordering = true;
--		original_query = (Query *)copyObject(parse);
--		original_query_string = (char *)query_string;
--		original_cursorOptions = cursorOptions;
--		original_boundParams = boundParams;
--	}
--	
--	if (prev_planner)
--	{
--		result = prev_planner(parse, query_string, cursorOptions, boundParams);
++
 +		return other_node_exists;
- 	}
- 	else
- 	{
--		result = standard_planner(parse, query_string, cursorOptions, boundParams);
++	}
++	else
++	{
 +		other_node_exists = true;
- 	}
--	return result;
++	}
 +
 +    if (check_for_vector_search(queryDesc, (Node *) plan->lefttree))
 +		other_node_exists = true;
@@ -1245,72 +926,42 @@ index 7cb7f90..aa85717
 +		other_node_exists = true;
 +
 +    return other_node_exists;
- }
- 
- 
--static double
--sampled_row_count()
++}
++
++
 +static bool
 +check_vector_range_query(PlannerInfo *root, RelOptInfo *rel)
- {
--    StringInfoData query;
--    int ret;
--    double count_result = 0.0;
--    bool isnull;
--    on_sampling = true;
++{
 +	bool vector_range_query = false;
 +	RangeTblEntry *rte;
 +	Oid relid = root->simple_rte_array[rel->relid]->relid;
 +	
- 
--    /* 동적 쿼리 초기화 */
--    initStringInfo(&query);
++
 +	ListCell *lc;
 +	foreach(lc, rel->baserestrictinfo)
 +    {
 +        RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
 +        Expr *clause = rinfo->clause;
- 
--	/* 동적 쿼리 생성 */
--    appendStringInfo(&query,
--                     "SELECT COUNT(*)::float FROM (SELECT %s FROM %s TABLESAMPLE SYSTEM(%f)) p "
--                     "WHERE p.%s <-> '%s' < %f;",
--                     vector_column_name, vector_table_name, sample_size,
--                     vector_column_name, vector_str, range_distance_value);
++
 +        if (IsA(clause, OpExpr))
 +        {
 +            OpExpr *opexpr = (OpExpr *) clause;
- 
--    /* SPI 연결 및 쿼리 실행 */
--    SPI_connect();
--    ret = SPI_execute(query.data, true, 0);
++
 +            Oid opno = opexpr->opno;
 +            const char *opname = get_opname(opno);
- 
--    if (ret != SPI_OK_SELECT)
--    {
--        SPI_finish();
--        elog(INFO, "Failed to execute query: %s", query.data);
--    }
++
 +            if (strcmp(opname, "<") == 0 || strcmp(opname, ">") == 0 ||
 +                strcmp(opname, "<=") == 0 || strcmp(opname, ">=") == 0)
 +            {
 +                Expr *left_expr = (Expr *) linitial(opexpr->args);
 +                Expr *right_expr = (Expr *) lsecond(opexpr->args);
- 
--    /* COUNT 결과 가져오기 */
--    if (SPI_processed > 0)
--    {
--        TupleDesc tupdesc = SPI_tuptable->tupdesc;
--        HeapTuple tuple = SPI_tuptable->vals[0];
--        Datum count_datum = SPI_getbinval(tuple, tupdesc, 1, &isnull);
++
 +				
 +                if (IsA(left_expr, OpExpr))
 +                {
 +                    OpExpr *left_opexpr = (OpExpr *) left_expr;
 +                    const char *left_opname = get_opname(left_opexpr->opno);
- 
--        if (!isnull)
++
 +                    if (strcmp(left_opname, "<->") == 0 ||
 +                        strcmp(left_opname, "<#>") == 0 ||
 +                        strcmp(left_opname, "<=>") == 0 ||
@@ -1359,197 +1010,63 @@ index 7cb7f90..aa85717
 +			}
 +        }
 +		else
-         {
--            count_result = DatumGetFloat8(count_datum);  // double로 반환
++        {
 +            // OpExpr가 아니면 일반 필터로 저장
 +            other_filters = lappend(other_filters, clause);
-         }
-     }
++        }
++    }
 +	return vector_range_query;
 +}
- 
--    /* SPI 종료 */
--    SPI_finish();
--
--    /* 동적 쿼리 메모리 해제 */
--    pfree(query.data);
--    on_sampling = false;
- 
--    return count_result;
--}
- 
- static bool
- has_vector_column(PlannerInfo *root, RelOptInfo *rel)
-@@ -539,19 +730,15 @@ has_vector_column(PlannerInfo *root, RelOptInfo *rel)
-     TupleDesc tupleDesc;
-     bool has_vector = false;
- 
--    /* Open the relation (table) */
-     relation = relation_open(relid, AccessShareLock);
-     tupleDesc = RelationGetDescr(relation);
- 
--    /* Loop through each column and check its type */
-     for (int i = 0; i < tupleDesc->natts; i++)
-     {
-         Form_pg_attribute attr = TupleDescAttr(tupleDesc, i);
- 
--        /* Skip dropped columns */
-         if (!attr->attisdropped)
-         {
--            /* Check if the column type is vector */
-             if (attr->atttypid == vectorOid)
-             {
-                 has_vector = true;
-@@ -565,528 +752,466 @@ has_vector_column(PlannerInfo *root, RelOptInfo *rel)
-     return has_vector;
- }
- 
--static void
--pgvector_set_baserel_rows_estimate_hook(PlannerInfo *root, RelOptInfo *rel)
--{
--	if (has_vector_column(root, rel))
--	{
--		if (first_run && need_ordering && !on_sampling)
--		{
--			if (vector_range_query_exists == false)
--			{
--				vector_range_query_exists = check_vector_range_query(root, rel);
--				if (vector_range_query_exists)
--				{
--					vector_index_exists = check_vector_index_exists(root, rel);
--					if (vector_index_exists)
--					{
--						need_running_vector_ANN_search = true;
--					}
--					else if (!checked_model)
--					{
--						load_selnet_model();
--						checked_model = true;
--					}
--					if (checked_model)
--					{
--						if (pySelnetModel != NULL)
--						{
--							double estimated_card = run_selnet_prediction(vector_str, range_distance_value);
--							elog(INFO, "estimated_card: %f", estimated_card);
--							rel->rows = clamp_row_est(estimated_card);
--							return;
--						}
--						else
--						{
--							double sample_card = sampled_row_count();
--							
--							if (sample_card == 0)
--							{
--								sample_card = 1;
--							}
--							rel->rows = clamp_row_est(sample_card) * 100 / sample_size;
--							elog(INFO, "sampled_card: %f, rel->rows: %f", sample_card, rel->rows);
--							vector_range_query_exists = false;
--							return;
--						}
--
--					}
--				}
--			}
--		}
--		else if (!first_run)
--		{
--			if (vectorSearchResults)
--			{
--				Oid relid = root->simple_rte_array[rel->relid]->relid;
--				ListCell *lc;
--				// get results of vector index search
--				foreach(lc, vectorSearchResults)
--				{
--					VectorSearchResult *result = (VectorSearchResult *) lfirst(lc);
--					Oid tableoid = result->oid;
--					if (tableoid == relid)
--					{
--						rel->rows = clamp_row_est(result->processed_tuples);
--						// vectorSearchResults = list_delete_cell(vectorSearchResults, lc);
--						return;
--					}
--				}
--			}
--			
--		}
--	}
--	set_baserel_rows_estimate_standard(root, rel);
--}
- 
--static void
--pgvector_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction,
--                     uint64 count, bool execute_once)
++
++
++
++static bool
++has_vector_column(PlannerInfo *root, RelOptInfo *rel)
++{
++    RangeTblEntry *rte = root->simple_rte_array[rel->relid];
++	if (rte == NULL || rte->rtekind != RTE_RELATION)
++    {
++        return false;
++    }
++    Oid relid = rte->relid;
++    Relation relation;
++    TupleDesc tupleDesc;
++    bool has_vector = false;
++
++    relation = relation_open(relid, AccessShareLock);
++    tupleDesc = RelationGetDescr(relation);
++
++    for (int i = 0; i < tupleDesc->natts; i++)
++    {
++        Form_pg_attribute attr = TupleDescAttr(tupleDesc, i);
++
++        if (!attr->attisdropped)
++        {
++            if (attr->atttypid == vectorOid)
++            {
++                has_vector = true;
++                break;
++            }
++        }
++    }
++
++    /* Close the relation */
++    relation_close(relation, AccessShareLock);
++    return has_vector;
++}
++
++
 +static PlannedStmt *
 +CreatePlannedStmtForVectorSearchNodes(QueryDesc *queryDesc, List *hnswNodes)
- {	
--	//elog(INFO, "ExecutorRun_hook called");
--	if (first_run && need_running_vector_ANN_search)
--	{
--		// first execution, check for vector index scan
--		if (IsParallelWorker())
--			return;
++{	
 +    if (hnswNodes == NIL)
 +    {
 +        elog(WARNING, "CreatePlannedStmtForVectorSearchNodes called with empty hnswNodes");
 +        return NULL;
 +    }
- 
--		//elog(INFO, "checking for vector index scan start");
--		vectorSearchResults = NIL;
--		first_run = false;
--		Plan *planTree = queryDesc->plannedstmt->planTree;
--		bool other_node_exists = check_for_vector_index_scan(queryDesc, (Node *) planTree);
--		if (vectorSearchResults && other_node_exists)
--		{
--			//elog(INFO, "start replanning");
--			if (prev_planner)
--			{
--				newPlannedStmt = prev_planner(original_query, original_query_string, original_cursorOptions, original_boundParams);
--			}
--			else
--			{
--				newPlannedStmt = standard_planner(original_query, original_query_string, original_cursorOptions, original_boundParams);
--			}
--			
--			// after_replan = true;
--			originalPlannedStmt = queryDesc->plannedstmt;
--			original_es_plannedstmt = queryDesc->estate->es_plannedstmt;
--			//elog(INFO, "running with vector index scan results start");
--			queryDesc->plannedstmt = newPlannedStmt;
--            queryDesc->estate->es_plannedstmt = newPlannedStmt;
--			// ExecutorStart with the new plan
--            ExecutorFinish(queryDesc);
--            if (prev_ExecutorEnd)
--				prev_ExecutorEnd(queryDesc);
--			else
--				standard_ExecutorEnd(queryDesc);
--            ExecutorStart(queryDesc, 0);
++
 +    MemoryContext oldctx = MemoryContextSwitchTo(TopMemoryContext);
- 
--			standard_ExecutorRun(queryDesc, direction, count, execute_once);
--			need_running_vector_ANN_search = false;
--			//elog(INFO, "running with vector index scan results done");
--		}
--		else
--		{
--			if (prev_ExecutorRun)
--				prev_ExecutorRun(queryDesc, direction, count, execute_once);
--			else
--				standard_ExecutorRun(queryDesc, direction, count, execute_once);
--			return;
--		}
--	}
--	else
--	{
--		if (prev_ExecutorRun)
--			prev_ExecutorRun(queryDesc, direction, count, execute_once);
--		else
--			standard_ExecutorRun(queryDesc, direction, count, execute_once);
--		return;
--	}
--}
++
 +    PlannedStmt *newPlannedStmt = makeNode(PlannedStmt);
 +    /* Copy the subplan node to decouple from the original tree */
 +#if PG_VERSION_NUM >= 120000
@@ -1557,14 +1074,7 @@ index 7cb7f90..aa85717
 +#else
 +    Plan *topPlan = (Plan *) copyObject(linitial(hnswNodes));
 +#endif
- 
--static bool
--check_for_vector_index_scan(QueryDesc *queryDesc, Node *node)
--{
--	bool other_node_exists = false;
--	int vector_tuples_processed = 0;
--    if (node == NULL)
--        return false;
++
 +    newPlannedStmt->commandType = CMD_SELECT;
 +    newPlannedStmt->queryId = queryDesc->plannedstmt ? queryDesc->plannedstmt->queryId : 0;
 +    newPlannedStmt->hasReturning = false;
@@ -1573,12 +1083,7 @@ index 7cb7f90..aa85717
 +    newPlannedStmt->transientPlan = false;
 +    newPlannedStmt->dependsOnRole = false;
 +    newPlannedStmt->parallelModeNeeded = false;
- 
--    // IndexScan 노드인지 확인
--    if (IsA(node, IndexScan) || IsA(node, IndexOnlyScan))
--    {
--        IndexScan *indexScan = (IndexScan *) node;
--        Oid indexid = indexScan->indexid;
++
 +	    /* In recent PG versions these fields exist; set safe defaults if absent */
 +#ifdef PG_USE_NODE_FIELD__JITFLAGS
 +    newPlannedStmt->jitFlags = queryDesc->plannedstmt ? queryDesc->plannedstmt->jitFlags : 0;
@@ -1590,52 +1095,9 @@ index 7cb7f90..aa85717
 +    newPlannedStmt->stmt_location = -1;
 +    newPlannedStmt->stmt_len = 0;
 +#endif
- 
--        // indexid를 사용하여 인덱스의 relam(액세스 메서드 OID) 가져오기
--        Relation indexRel = relation_open(indexid, NoLock);
--        Oid indexAmOid = indexRel->rd_rel->relam;
--		relation_close(indexRel, AccessShareLock);
--        // 인덱스 액세스 메서드가 "hnsw"인지 확인
--		// 나중에 합쳐도 될듯?
--        if (indexAmOid == hnswOid)
--        {
--            // foundHNSW = true;  // HNSW 인덱스를 사용하는 노드를 리스트에 추가
++
 +    newPlannedStmt->planTree = topPlan;
- 
--			Oid tableoid = IndexGetRelation(indexid, true);
--			
--			List *hnswNodes = NIL;
--			hnswNodes = lappend(hnswNodes, node);
--			PlannedStmt *hnswPlannedStmt = CreatePlannedStmtForVectorSearchNodes(queryDesc, hnswNodes);
--			// 새로운 PlannedStmt에 대한 QueryDesc 생성 및 실행
--			QueryDesc *hnswQueryDesc = CreateQueryDesc(hnswPlannedStmt,
--													queryDesc->sourceText,
--													queryDesc->snapshot,
--													queryDesc->crosscheck_snapshot,
--													None_Receiver,
--													queryDesc->params,
--													queryDesc->queryEnv,
--													0);
--			ExecutorStart(hnswQueryDesc, 0);
--			ExecutorRun(hnswQueryDesc, ForwardScanDirection, 0L, true);
--			// updateRowList = lappend(updateRowList,);
--			vector_tuples_processed = hnswQueryDesc->estate->es_processed;
--			VectorSearchResult *hnswResult = palloc(sizeof(VectorSearchResult));
--			hnswResult->node = node;
--			hnswResult->oid = tableoid;
--			// hnswResult->original_tuples = indexRel->rd_rel->reltuples;
--			hnswResult->processed_tuples = vector_tuples_processed;
--			// hnswResult->queryDesc = hnswQueryDesc;
--			// indexRel->rd_rel->reltuples = vector_tuples_processed;
--			// elog(LOG, "table %d with HNSW index scan processed %d tuples", hnswResult->oid, vector_tuples_processed);
--			vectorSearchResults = lappend(vectorSearchResults, hnswResult);
--			
--			ExecutorFinish(hnswQueryDesc);
--			if (prev_ExecutorEnd)
--				prev_ExecutorEnd(hnswQueryDesc);
--			else
--				standard_ExecutorEnd(hnswQueryDesc);
--			FreeQueryDesc(hnswQueryDesc);
++
 +        /*
 +     * Copy rel lists so lifetime is guaranteed even if original queryDesc is ended.
 +     * Shallow copy is usually fine, but deep copy avoids dangling pointers.
@@ -1685,11 +1147,9 @@ index 7cb7f90..aa85717
 +                appendStringInfo(query, " AND (%s)", filter_str);
 +            else
 +                appendStringInfo(query, " AND (%s)", filter_str);
-         }
--		else if (indexAmOid == ivfOid)
++        }
 +        else if (IsA(filter, OpExpr))
-         {
--            // foundHNSW = true;  // HNSW 인덱스를 사용하는 노드를 리스트에 추가
++        {
 +            // 일반 비교 연산자 (예: =, <, >, LIKE 등)
 +            appendStringInfo(query, " AND %s", filter_str);
 +        }
@@ -1715,39 +1175,7 @@ index 7cb7f90..aa85717
 +        }
 +    }
 +}
- 
--			Oid tableoid = IndexGetRelation(indexid, true);
--			
--			List *hnswNodes = NIL;
--			hnswNodes = lappend(hnswNodes, node);
--			PlannedStmt *hnswPlannedStmt = CreatePlannedStmtForVectorSearchNodes(queryDesc, hnswNodes);
--			// 새로운 PlannedStmt에 대한 QueryDesc 생성 및 실행
--			QueryDesc *ivfQueryDesc = CreateQueryDesc(hnswPlannedStmt,
--													queryDesc->sourceText,
--													queryDesc->snapshot,
--													queryDesc->crosscheck_snapshot,
--													None_Receiver,
--													queryDesc->params,
--													queryDesc->queryEnv,
--													0);
--			ExecutorStart(ivfQueryDesc, 0);
--			ExecutorRun(ivfQueryDesc, ForwardScanDirection, 0L, true);
--			// updateRowList = lappend(updateRowList,);
--			vector_tuples_processed = ivfQueryDesc->estate->es_processed;
--			VectorSearchResult *ivfResult = palloc(sizeof(VectorSearchResult));
--			ivfResult->node = node;
--			ivfResult->oid = tableoid;
--			ivfResult->processed_tuples = vector_tuples_processed;
--			// ivfResult->queryDesc = ivfQueryDesc;
--			vectorSearchResults = lappend(vectorSearchResults, ivfResult);
--			// elog(LOG, "table %d with IVF index scan processed %d tuples", ivfResult->oid, vector_tuples_processed);
--			
--			ExecutorFinish(ivfQueryDesc);
--			if (prev_ExecutorEnd)
--				prev_ExecutorEnd(ivfQueryDesc);
--			else
--				standard_ExecutorEnd(ivfQueryDesc);
--			FreeQueryDesc(ivfQueryDesc);
++
 +static double
 +estimate_cardinality_with_sampling(double total_rows)
 +{
@@ -1788,48 +1216,15 @@ index 7cb7f90..aa85717
 +        if (!isnull)
 +        {
 +            count_result = DatumGetFloat8(count_datum);
-         }
--		else
--		{
--			other_node_exists = true;
--		}
--        // relcache를 닫음
--        
-     }
--	else if (IsA(node, SubqueryScan))
--	{
--		SubqueryScan *subqueryScanNode = (SubqueryScan *) node;
--		
--		// SubqueryScan 노드의 하위 서브쿼리 플랜을 재귀적으로 탐색
--		if (check_for_vector_index_scan(queryDesc, (Node *) subqueryScanNode->subplan))
--			other_node_exists = true;
--	}
--	else if (IsA(node, SeqScan))
--	{
--		 SeqScan *seqScanNode = (SeqScan *) node;
--		//elog(INFO, "SeqScan node");
++        }
++    }
 +	// elog(LOG, "count result : %f", count_result);
- 
--		// SeqScan 노드의 scanrelid를 통해 RangeTblEntry를 가져옴
--		RangeTblEntry *rte = rt_fetch(seqScanNode->scan.scanrelid, queryDesc->estate->es_range_table);
--		
--		// 테이블 OID 가져오기
--		Oid tableoid = rte->relid;
--		//elog(INFO, "tableoid: %d", tableoid);
++
 +    SPI_finish();
- 
--		// 테이블 OID를 사용하여 테이블 이름 가져오기
--		Relation seqScanRel = relation_open(tableoid, AccessShareLock);
--		char *tableName = get_rel_name(tableoid);
--		//elog(INFO, "check vector scan table name: %s, vector table name: %s", tableName, vector_table_name);
++
 +    pfree(query.data);
 +    is_sampling_active = false;
- 
--		if (strcmp(tableName, vector_table_name) == 0)
--		{
--			//elog(INFO, "vector table found %s", tableName);
--			// SeqScan 노드를 리스트에 추가
--			if (vector_range_query_exists)
++
 +    if (count_result == 0)
 +    {
 +        count_result = 1;
@@ -1857,58 +1252,23 @@ index 7cb7f90..aa85717
 +		if (strcmp(relname, vector_table_name) == 0){
 +			true_cardinality = instrument->ntuples;
 +			if (vector_table_size == 0.0)
- 			{
--				//elog(INFO, "vector range query exists");
--				// vector_index_exists = check_vector_index_exists(root, rel);
--				if (pySelnetModel == NULL)
--				{
--					load_selnet_model();
--				}
--				if (pySelnetModel != NULL)
--				{
--					vector_tuples_processed = run_selnet_prediction(vector_str, range_distance_value);
--					//elog(INFO, "vector tuples processed with model: %d", vector_tuples_processed);
--					// rel->rows = clamp_row_est(prediction_row);
--					// return;
--					VectorSearchResult *modelResult = palloc(sizeof(VectorSearchResult));
--					modelResult->node = node;
--					modelResult->oid = tableoid;
--					modelResult->processed_tuples = vector_tuples_processed;
--					// modelResult->queryDesc = NULL;
--					vectorSearchResults = lappend(vectorSearchResults, modelResult);
--				}
++			{
 +				vector_table_size = get_relation_row_count(queryDesc, ((Scan *)plan)->scanrelid);
- 			}
++			}
 +			return;
- 		}
--		relation_close(seqScanRel, AccessShareLock);
--	}
--	else
--	{
--		other_node_exists = true;
--	}
++		}
 +    }
- 
--    // Left tree와 Right tree를 재귀적으로 탐색
--    Plan *plan = (Plan *) node;
++
 +    if (outerPlanState(planstate)) {
 +        get_true_cardinality_for_vector_query(queryDesc, outerPlanState(planstate));
 +    }
 +    if (innerPlanState(planstate)) {
 +        get_true_cardinality_for_vector_query(queryDesc, innerPlanState(planstate));
 +    }
- 
--    // Left tree에서 HNSW 인덱스 사용 여부 확인
--	// check_for_vector_index_scan((Node *) plan->lefttree);
--    if (check_for_vector_index_scan(queryDesc, (Node *) plan->lefttree))
--		other_node_exists = true;
++
 +}
- 
--    // Right tree에서 HNSW 인덱스 사용 여부 확인
--    if (check_for_vector_index_scan(queryDesc, (Node *) plan->righttree))
--		other_node_exists = true;
- 
--    return other_node_exists;
++
++
 +static double 
 +get_relation_row_count(QueryDesc *queryDesc, Index scanrelid) 
 +{
@@ -1945,61 +1305,29 @@ index 7cb7f90..aa85717
 +    }
 +
 +    return row_count;
- }
- 
--static bool
--check_vector_index_exists(PlannerInfo *root, RelOptInfo *rel)
++}
++
 +static char *
 +get_tablename_from_scan(QueryDesc *queryDesc, Index scanrelid) 
- {
--	bool vector_index_exists = false;
--	ListCell *lc;
--	// 테이블의 인덱스 리스트에 접근 (RelOptInfo 구조체의 indexlist 사용)
--    foreach(lc, rel->indexlist)
--    {
--        IndexOptInfo *index = (IndexOptInfo *) lfirst(lc);
--        Oid indexOid = index->indexoid;
++{
 +    if (scanrelid == 0 || queryDesc->plannedstmt->rtable == NULL) {
 +        return NULL;
 +    }
- 
--        // 인덱스의 OID를 사용해 pg_class에서 인덱스 정보 가져옴
--        HeapTuple indexTuple = SearchSysCache1(RELOID, ObjectIdGetDatum(indexOid));
--        if (HeapTupleIsValid(indexTuple))
--        {
--            Form_pg_class indexForm = (Form_pg_class) GETSTRUCT(indexTuple);
++
 +    List *rtable = queryDesc->plannedstmt->rtable;
 +    RangeTblEntry *rte = list_nth(rtable, scanrelid - 1);
- 
--            // 인덱스의 액세스 메소드 OID 가져오기
--            Oid amOid = indexForm->relam;
--			
--			if (amOid == hnswOid || amOid == ivfOid)
--			{
--				vector_index_exists = true;
--				//elog(INFO, "vector search index exists");
--			}
--            ReleaseSysCache(indexTuple);
--        }
++
 +    if (rte->relid != InvalidOid) {
 +        return get_rel_name(rte->relid);
-     }
--	return vector_index_exists;
++    }
 +
 +    return NULL;
- }
- 
- 
--static bool
--check_vector_range_query(PlannerInfo *root, RelOptInfo *rel)
++}
++
++
 +static void
 +count_total_tables(Query *query, int *table_count)
- {
--	//elog(INFO, "check_vector_range_query called");
--	bool vector_range_query = false;
--	RangeTblEntry *rte;
--	// rte = planner_rt_fetch(rel->relid, root);
--	Oid relid = root->simple_rte_array[rel->relid]->relid;
++{
 +    ListCell *lc;
 +
 +    // 쿼리의 FROM 절에 있는 테이블들을 처리합니다.
@@ -2025,31 +1353,22 @@ index 7cb7f90..aa85717
 +        Query *cte_query = (Query *) cte->ctequery;
 +        count_total_tables(cte_query, table_count);
 +    }
- 	
--	/* Should only be applied to base relations */
--	// Assert(rel->relid > 0);
--	// vector_table_name = get_rel_name(relid);
++	
 +    // WHERE 절의 서브링크에 있는 테이블들을 처리합니다.
 +    if (query->jointree && query->jointree->quals)
 +    {
 +        count_tables_in_quals(query->jointree->quals, table_count);
 +    }
-+}
+ }
  
--	// get table name here
--	// elog(INFO, "Table name: %s", vector_table_name);
 +static void 
 +count_tables_in_quals(Node *quals, int *table_count)
 +{
 +    if (quals == NULL)
 +        return;
- 
--	ListCell *lc;
--	foreach(lc, rel->baserestrictinfo)
++
 +    if (IsA(quals, SubLink))
-     {
--        RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
--        Expr *clause = rinfo->clause;
++    {
 +        SubLink *sublink = (SubLink *) quals;
 +        Query *subquery = (Query *) sublink->subselect;
 +        count_total_tables(subquery, table_count);
@@ -2058,94 +1377,27 @@ index 7cb7f90..aa85717
 +    {
 +        BoolExpr *bool_expr = (BoolExpr *) quals;
 +        ListCell *lc;
- 
--        if (IsA(clause, OpExpr))
++
 +        foreach(lc, bool_expr->args)
-         {
--            OpExpr *opexpr = (OpExpr *) clause;
++        {
 +            Node *arg = (Node *) lfirst(lc);
 +            count_tables_in_quals(arg, table_count);
 +        }
 +    }
 +}
- 
--            /* Check for range operators like <, >, <=, >= */
--            Oid opno = opexpr->opno;
--            const char *opname = get_opname(opno);
- 
--            if (strcmp(opname, "<") == 0 || strcmp(opname, ">") == 0 ||
--                strcmp(opname, "<=") == 0 || strcmp(opname, ">=") == 0)
--            {
--                /* Check if one side of the range is the vector distance operator */
--                Expr *left_expr = (Expr *) linitial(opexpr->args);
--                Expr *right_expr = (Expr *) lsecond(opexpr->args);
++
++
 +static void 
 +load_qerrors_array(const char *table_name, const char *column_name, Datum *Qerrors_array, int *Qerrors_count, float8 *sample_size, float8 *v_grad, float8 *learning_rate) 
 +{
 +    SPI_connect();
- 
--				
--                if (IsA(left_expr, OpExpr))
--                {
--                    OpExpr *left_opexpr = (OpExpr *) left_expr;
--                    const char *left_opname = get_opname(left_opexpr->opno);
++
 +    char *select_query = "SELECT sample_size, recent_qerrors, qerror_count, v_grad, learning_rate FROM exqutor_qerror WHERE table_name = $1 AND column_name = $2";
 +    Oid argtypes[2] = {TEXTOID, TEXTOID};
 +    Datum values[2] = {CStringGetTextDatum(table_name), CStringGetTextDatum(column_name)};
- 
--                    if (strcmp(left_opname, "<->") == 0)
--                    {
--						vector_range_query = true;
--                        // elog(INFO, "Vector distance operator <-> is on the left side of a range condition.");
--						if (IsA(left_opexpr, OpExpr))
--						{
--							OpExpr *left = (OpExpr *) left_opexpr;
--							Expr *left_expr1 = (Expr *) linitial(left->args);
--							Expr *right_expr2 = (Expr *) lsecond(left->args);
--							// 좌변 또는 우변이 컬럼일 경우 처리
--							if (IsA(left_expr1, Var))
--							{
--								Var *var = (Var *) left_expr1;
--								rte = planner_rt_fetch(var->varno, root);
--								vector_column_name = get_rte_attribute_name(rte, var->varattno);
--								// get column name here
--								// elog(INFO, "Left column name: %s", vector_column_name);
--							}
--							if (IsA(right_expr2, Const))
--							{
--								Const *const_val = (Const *) right_expr2;
--								
--								/* Check if the constant type is vector (pgvector extension) */
--								// if (is_vector_type(const_val->consttype))
--								if(const_val->consttype == vectorOid)
--								{
--									// elog(INFO, "Vector constant detected.");
--									// get vector value here
--									Vector *vector = (Vector *) DatumGetPointer(const_val->constvalue);
--									vector_str = DatumGetCString(DirectFunctionCall1(vector_out, PointerGetDatum(vector)));
--									vector_table_name = get_rel_name(relid);
--									//elog(INFO, "vector_range_query = true Vector table name: %s", vector_table_name);
--									// elog(INFO, "Vector element %s", vector_str);
--									// for (int i = 0; i < 5; i++)
--									// {
--									// 	elog(INFO, "Vector element %d: %f", i, vector->x[i]);
--									// }
--								}
--							}
--						}
--                    }
--					if (IsA(right_expr, Const))
--					{
--						Const *const_val = (Const *) right_expr;
++
 +    int ret = SPI_execute_with_args(select_query, 2, argtypes, values, NULL, false, 0);
- 
--						if (const_val->consttype == FLOAT8OID)
--						{
--							range_distance_value = DatumGetFloat8(const_val->constvalue);
--							// elog(INFO, "Distance threshold value: %f", range_distance_value);
--						}
--					}
--                }
++
 +    if (ret == SPI_OK_SELECT && SPI_processed > 0) {
 +        bool isnull;
 +
@@ -2175,27 +1427,22 @@ index 7cb7f90..aa85717
 +
 +            for (int i = 0; i < num_elements; i++) {
 +                Qerrors_array[i] = elements[i];
-             }
++            }
 +
 +            MemoryContextSwitchTo(oldCtx);
 +
 +            pfree(elements);
-         }
++        }
 +    } else {
 +        elog(WARNING, "No rows found for table_name: %s, column_name: %s", table_name, column_name);
-     }
--	return vector_range_query;
--}
- 
++    }
++
 +    SPI_finish();
 +}
- 
--static PlannedStmt *
--CreatePlannedStmtForVectorSearchNodes(QueryDesc *queryDesc, List *hnswNodes)
++
 +static void 
 +update_qerrors_array(const char *table_name, const char *column_name, Datum *Qerrors_array, int Qerrors_count, float8 sample_size, float8 v_grad, float8 learning_rate) 
- {
--    PlannedStmt *newPlannedStmt = makeNode(PlannedStmt);
++{
 +    ArrayType *array = construct_array(
 +        Qerrors_array,     
 +        sample_update_cycle,     
@@ -2204,35 +1451,13 @@ index 7cb7f90..aa85717
 +        true,              
 +        'd'                
 +    );
- 
--    /* 기본 정보 복사 */
--    newPlannedStmt->commandType = CMD_SELECT;  // 쿼리 타입을 선택문으로 설정 (필요에 따라 수정)
--    newPlannedStmt->queryId = queryDesc->plannedstmt->queryId;
--    newPlannedStmt->hasReturning = false;
--    newPlannedStmt->hasModifyingCTE = false;
--    newPlannedStmt->canSetTag = true;
--    newPlannedStmt->transientPlan = false;
--    newPlannedStmt->dependsOnRole = false;
--    newPlannedStmt->parallelModeNeeded = false;
++
 +    SPI_connect();
- 
--    /* hnswNodes에 있는 첫 번째 노드를 루트로 설정 (간단한 예제용) */
--    Plan *topPlan = (Plan *) linitial(hnswNodes);
--    newPlannedStmt->planTree = topPlan;
++
 +    char *update_query = "UPDATE exqutor_qerror "
 +                         "SET recent_qerrors = $1, qerror_count = $2, sample_size = $3, v_grad = $4, learning_rate = $5 "
 +                         "WHERE table_name = $6 AND column_name = $7";
- 
--    /* Subplans 및 기타 필요한 필드 초기화 (기본값 사용) */
--    newPlannedStmt->rtable = queryDesc->plannedstmt->rtable;
--    newPlannedStmt->subplans = NIL;
--    // newPlannedStmt->rewindPlanIDs = NIL;
--    newPlannedStmt->resultRelations = NIL;
--    newPlannedStmt->rowMarks = NIL;
--    newPlannedStmt->relationOids = queryDesc->plannedstmt->relationOids;
--    newPlannedStmt->invalItems = queryDesc->plannedstmt->invalItems;
--	newPlannedStmt->permInfos = queryDesc->plannedstmt->permInfos;
--    return newPlannedStmt;
++
 +    Oid argtypes[7] = {FLOAT8ARRAYOID, INT4OID, FLOAT8OID, FLOAT8OID, FLOAT8OID, TEXTOID, TEXTOID};
 +    Datum values[7] = {
 +        PointerGetDatum(array),             
@@ -2254,35 +1479,19 @@ index 7cb7f90..aa85717
 +    }
 +
 +    SPI_finish();
- }
- 
- 
--static void
--pgvector_ExecutorEnd(QueryDesc *queryDesc)
++}
++
++
 +static int 
 +compare_float8(const void *a, const void *b) 
- {
++{
 +    float8 fa = *(const float8 *)a;
 +    float8 fb = *(const float8 *)b;
 +    if (fa < fb) return -1;
 +    if (fa > fb) return 1;
 +    return 0;
 +}
- 
--	// 원래 ExecutorEnd 작업
--	if (first_run)
--	{
--		need_ordering = false;
--		need_running_vector_ANN_search = false;
--	}
--	else if (first_run == false && need_running_vector_ANN_search == false)
--	{
--		need_ordering = false;
--		list_free_deep(vectorSearchResults);
--		vectorSearchResults = NIL;
--		first_run = true;
--		vector_range_query_exists = false;
--	}
++
 +static float8 
 +get_median(Datum *Qerrors_array, int length) 
 +{
@@ -2291,12 +1500,7 @@ index 7cb7f90..aa85717
 +    for (int i = 0; i < length; i++) {
 +        values[i] = DatumGetFloat8(Qerrors_array[i]);
 +    }
- 
--	// 기존의 ExecutorEnd 로직 수행
--	if (prev_ExecutorEnd)
--		prev_ExecutorEnd(queryDesc);
--	else
--		standard_ExecutorEnd(queryDesc);
++
 +    qsort(values, length, sizeof(float8), compare_float8);
 +
 +    if (length % 2 == 1) {
@@ -2307,86 +1511,52 @@ index 7cb7f90..aa85717
 +
 +    pfree(values);
 +    return median;
- }
- 
--// static bool
--// is_vector_type(Oid consttype)
--// {
--//     char *typname = format_type_be(consttype);
- 
--//     if (strcmp(typname, "vector") == 0)
--//     {
--//         //elog(INFO, "The constant type is vector.");
--//         return true;
--//     }
- 
--//     //elog(INFO, "The constant type is not vector, it is: %s", typname);
--//     return false;
--// }
- 
++}
++
++
++
++
  /*
   * Ensure same dimensions
+  */
 diff --git a/src/vector.h b/src/vector.h
 old mode 100644
 new mode 100755
-index 63a299a..b7c3881
+index 5075ae0..b7c3881
 --- a/src/vector.h
 +++ b/src/vector.h
-@@ -26,10 +26,10 @@ typedef struct VectorSearchResult
- 	Oid oid;
- 	float4 original_tuples;
- 	float4 processed_tuples;
--	// QueryDesc *queryDesc;
+@@ -8,6 +8,8 @@
+ #define PG_GETARG_VECTOR_P(x)	DatumGetVector(PG_GETARG_DATUM(x))
+ #define PG_RETURN_VECTOR_P(x)	PG_RETURN_POINTER(x)
+ 
++#include "executor/execdesc.h"
++
+ typedef struct Vector
+ {
+ 	int32		vl_len_;		/* varlena header (do not touch directly!) */
+@@ -16,8 +18,22 @@ typedef struct Vector
+ 	float		x[FLEXIBLE_ARRAY_MEMBER];
+ }			Vector;
+ 
++// List*		vectorIndexOids;
++
++typedef struct VectorSearchResult
++{
++	Node *node;
++	Oid oid;
++	float4 original_tuples;
++	float4 processed_tuples;
 +	QueryDesc *queryDesc;
- }		VectorSearchResult;
- 
--// extern bool AQO;
++}		VectorSearchResult;
++
 +extern bool reuse_computation;
- 
++
  Vector	   *InitVector(int dim);
  void		PrintVector(char *msg, Vector * vector);
-diff --git a/test/expected/bit.out b/test/expected/bit.out
-old mode 100644
-new mode 100755
-diff --git a/test/expected/btree.out b/test/expected/btree.out
-old mode 100644
-new mode 100755
-diff --git a/test/expected/cast.out b/test/expected/cast.out
-old mode 100644
-new mode 100755
-diff --git a/test/expected/copy.out b/test/expected/copy.out
-old mode 100644
-new mode 100755
-diff --git a/test/expected/halfvec.out b/test/expected/halfvec.out
-old mode 100644
-new mode 100755
-diff --git a/test/expected/hnsw_bit.out b/test/expected/hnsw_bit.out
-old mode 100644
-new mode 100755
-diff --git a/test/expected/hnsw_halfvec.out b/test/expected/hnsw_halfvec.out
-old mode 100644
-new mode 100755
-diff --git a/test/expected/hnsw_sparsevec.out b/test/expected/hnsw_sparsevec.out
-old mode 100644
-new mode 100755
-diff --git a/test/expected/hnsw_vector.out b/test/expected/hnsw_vector.out
-old mode 100644
-new mode 100755
-diff --git a/test/expected/ivfflat_bit.out b/test/expected/ivfflat_bit.out
-old mode 100644
-new mode 100755
-diff --git a/test/expected/ivfflat_halfvec.out b/test/expected/ivfflat_halfvec.out
-old mode 100644
-new mode 100755
-diff --git a/test/expected/ivfflat_vector.out b/test/expected/ivfflat_vector.out
-old mode 100644
-new mode 100755
-diff --git a/test/expected/sparsevec.out b/test/expected/sparsevec.out
-old mode 100644
-new mode 100755
-diff --git a/test/expected/vector_type.out b/test/expected/vector_type.out
-old mode 100644
-new mode 100755
+ int			vector_cmp_internal(Vector * a, Vector * b);
+ 
++
+ #endif
 diff --git a/vector.control b/vector.control
 old mode 100644
 new mode 100755
