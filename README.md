@@ -1,9 +1,9 @@
 <div align="center">
   <h1>
-    &nbsp; Exqutor: Extended Query Optimizer for Vector-augmented Analytical Queries
+    &nbsp; Exqutor: Extended Query Optimizer for Vector-augmented Analytical Queries (ICDE'26)
   </h1>
 </div>
-
+  
 **Exqutor** is an **extended query optimizer** designed to improve **vector-augmented analytical queries (VAQs)** by enhancing cardinality estimation in vector search operations. With the rise of **Retrieval-Augmented Generation (RAG)** and **table-augmented generation**, modern analytical workloads increasingly integrate structured relational data with vector similarity searches. However, existing database optimizers struggle with **inaccurate cardinality estimation** for vector search operations, leading to inefficient query execution plans.
 
 ## System Design
