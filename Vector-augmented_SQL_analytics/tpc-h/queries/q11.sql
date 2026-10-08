@@ -1,13 +1,12 @@
 SELECT
-    ps_partkey
-FROM
-    partsupp_deep,
-    supplier,
-    nation
-WHERE
-    ps_suppkey = s_suppkey
-    AND s_nationkey = n_nationkey
-    AND n_name = 'ARGENTINA'
-    AND ps_embedding <-> 'image_embedding' < 0.86
-ORDER BY
-    ps_embedding <-> 'image_embedding';
+    ps.ps_partkey,
+    ps.ps_suppkey
+FROM partsupp_youtube AS ps,
+    supplier AS s,
+    nation AS n
+WHERE ps.ps_suppkey = s.s_suppkey
+    AND s.s_nationkey = n.n_nationkey
+    AND n.n_name = 'ARGENTINA'
+    AND array_distance(ps.ps_embedding, getvariable('query_vector')::FLOAT[1024]) < getvariable('threshold')::DOUBLE
+ORDER BY array_distance(ps.ps_embedding, getvariable('query_vector')::FLOAT[1024]) ASC
+LIMIT 500;

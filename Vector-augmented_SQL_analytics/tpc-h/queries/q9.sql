@@ -1,36 +1,25 @@
 SELECT
-    nation,
-    o_year,
-    SUM(amount) AS sum_profit
-FROM
-    (
-        SELECT
-            n_name AS nation,
-            extract(YEAR FROM o_orderdate) AS o_year,
-            l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity AS amount
-        FROM
-            part,
-            supplier,
-            lineitem,
-            partsupp_deep,
-            orders,
-            nation
-        WHERE
-            s_suppkey = l_suppkey
-            AND ps_suppkey = l_suppkey
-            AND ps_partkey = l_partkey
-            AND p_partkey = l_partkey
-            AND o_orderkey = l_orderkey
-            AND s_nationkey = n_nationkey
-            AND p_name LIKE '%almond%'
-            and ps_embedding <-> 'image_embedding' < 0.86
-        ORDER BY
-            ps_embedding <-> 'image_embedding'
-    ) as profit
-group by
-    nation,
-    o_year
-order by
-    nation,
-    o_year desc
-LIMIT 1;
+    o.o_orderkey,
+    l.l_linenumber,
+    ps.ps_partkey,
+    ps.ps_suppkey,
+    n.n_name AS supplier_nation,
+    o.o_orderdate,
+    l.l_quantity,
+    l.l_extendedprice * (1 - l.l_discount) - ps.ps_supplycost * l.l_quantity AS line_profit
+FROM part AS p
+JOIN lineitem AS l
+ON l.l_partkey = p.p_partkey
+JOIN partsupp_youtube AS ps
+ON ps.ps_partkey = l.l_partkey
+    AND ps.ps_suppkey = l.l_suppkey
+JOIN supplier AS s
+ON s.s_suppkey = l.l_suppkey
+JOIN orders AS o
+ON o.o_orderkey = l.l_orderkey
+JOIN nation AS n
+ON n.n_nationkey = s.s_nationkey
+WHERE p.p_name LIKE '%almond%'
+    AND array_distance(ps.ps_embedding, getvariable('query_vector')::FLOAT[1024]) < getvariable('threshold')::DOUBLE
+ORDER BY array_distance(ps.ps_embedding, getvariable('query_vector')::FLOAT[1024]) ASC
+LIMIT 500;

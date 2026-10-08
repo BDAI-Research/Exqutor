@@ -1,20 +1,18 @@
 SELECT
-    l_orderkey,
-    o_orderdate,
-    o_shippriority
-FROM
-    customer,
+    o_orderkey,
+    l_linenumber,
+    l_commitdate
+FROM customer,
     orders,
     lineitem,
-    partsupp_deep
-WHERE
-    c_mktsegment = 'HOUSEHOLD'
-    AND c_custkey = o_custkey
-    AND l_orderkey = o_orderkey
-    AND o_orderdate < DATE '1995-03-14'
-    AND l_shipdate > DATE '1995-03-14'
+    partsupp_youtube
+WHERE c_custkey = o_custkey
+    AND o_orderkey = l_orderkey
     AND ps_partkey = l_partkey
     AND ps_suppkey = l_suppkey
-    AND ps_embedding <-> 'image_embedding' < 0.86
-ORDER BY
-    ps_embedding <-> 'image_embedding'
+    AND c_mktsegment = 'HOUSEHOLD'
+    AND o_orderdate < DATE '1995-03-14'
+    AND l_shipdate > DATE '1995-03-14'
+    AND array_distance(ps_embedding, getvariable('query_vector')::FLOAT[1024]) < getvariable('threshold')::DOUBLE
+ORDER BY array_distance(ps_embedding, getvariable('query_vector')::FLOAT[1024]) ASC
+LIMIT 500;
